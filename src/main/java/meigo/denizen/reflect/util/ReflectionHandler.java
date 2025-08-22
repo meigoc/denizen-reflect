@@ -10,10 +10,24 @@ import meigo.denizen.reflect.DenizenReflect;
 import meigo.denizen.reflect.object.JavaObjectTag;
 
 import java.lang.reflect.*;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class ReflectionHandler {
+
+    // Константы для читаемости
+    private static final int CONVERSION_IMPOSSIBLE = 1000;
+    private static final int CONVERSION_DIRECT_MATCH = 1;
+    private static final int CONVERSION_PRIMITIVE = 2;
+    private static final int CONVERSION_WIDENING = 10;
+    private static final int CONVERSION_STRING_FALLBACK = 20;
+    private static final int CONVERSION_NULL = 50;
+    private static final int CONVERSION_OBJECT_FALLBACK = 100;
+
+    // Кэш для методов (улучшение производительности)
+    private static final Map<String, Method[]> methodCache = new ConcurrentHashMap<>();
+    private static final Map<String, Constructor<?>[]> constructorCache = new ConcurrentHashMap<>();
 
     /**
      * Intelligently wraps a raw Java object into a Denizen ObjectTag.
@@ -37,14 +51,19 @@ public class ReflectionHandler {
 
         // Let DenizenCore try to convert it to a native type (ElementTag, ListTag, etc.)
         ObjectTag converted = CoreUtilities.objectToTagForm(result, context, false, false, false);
+
         // Heuristic: If the result is a generic ElementTag whose value is just the toString() of the original object,
         // it's likely a complex type that Denizen doesn't know about. In this case, our JavaObjectTag is more useful.
-        if (converted instanceof ElementTag && !(result instanceof String || result instanceof Number || result instanceof Boolean)) {
+        if (converted instanceof ElementTag && !isSimpleType(result)) {
             if (converted.identify().equals(result.toString())) {
                 return new JavaObjectTag(result);
             }
         }
         return converted;
+    }
+
+    private static boolean isSimpleType(Object obj) {
+        return obj instanceof String || obj instanceof Number || obj instanceof Boolean;
     }
 
     public static boolean isClassAllowed(Class<?> clazz) {
@@ -71,59 +90,105 @@ public class ReflectionHandler {
 
     private static int calculateConversionCost(Class<?> javaParam, ObjectTag denizenParam) {
         if (denizenParam == null) {
-            return javaParam.isPrimitive() ? 1000 : 0; // Null can be passed to non-primitives
+            // null может быть передан в non-primitive параметры, но это не лучший матч
+            return javaParam.isPrimitive() ? CONVERSION_IMPOSSIBLE : CONVERSION_NULL;
         }
+
         Object javaObject = denizenParam.getJavaObject();
         if (javaObject != null && javaParam.isInstance(javaObject)) {
-            return 1; // Direct match
+            return CONVERSION_DIRECT_MATCH; // Direct match
         }
+
         if (denizenParam instanceof ElementTag element) {
-            if ((javaParam == int.class || javaParam == Integer.class) && element.isInt()) return 2;
-            if ((javaParam == double.class || javaParam == Double.class) && element.isDouble()) return 2;
-            if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return 2; // Should be isLong, but Denizen's isInt covers long
-            if ((javaParam == float.class || javaParam == Float.class) && element.isFloat()) return 3;
-            if ((javaParam == boolean.class || javaParam == Boolean.class) && element.isBoolean()) return 2;
-            if ((javaParam == short.class || javaParam == Short.class) && element.isInt()) return 4;
-            if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt()) return 5;
+            // Точные соответствия примитивов
+            if ((javaParam == int.class || javaParam == Integer.class) && element.isInt())
+                return CONVERSION_PRIMITIVE;
+            if ((javaParam == double.class || javaParam == Double.class) && element.isDouble())
+                return CONVERSION_PRIMITIVE;
+            if ((javaParam == long.class || javaParam == Long.class) && element.isInt())
+                return CONVERSION_PRIMITIVE; // Should be isLong, but Denizen's isInt covers long
+            if ((javaParam == float.class || javaParam == Float.class) && element.isFloat())
+                return CONVERSION_PRIMITIVE + 1;
+            if ((javaParam == boolean.class || javaParam == Boolean.class) && element.isBoolean())
+                return CONVERSION_PRIMITIVE;
+            if ((javaParam == short.class || javaParam == Short.class) && element.isInt())
+                return CONVERSION_PRIMITIVE + 2;
+            if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt())
+                return CONVERSION_PRIMITIVE + 3;
+
             // Widening primitive conversions
-            if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return 10;
-            if ((javaParam == float.class || javaParam == Float.class) && element.isInt()) return 11;
-            if ((javaParam == double.class || javaParam == Double.class) && (element.isInt() || element.isFloat())) return 12;
+            if ((javaParam == long.class || javaParam == Long.class) && element.isInt())
+                return CONVERSION_WIDENING;
+            if ((javaParam == float.class || javaParam == Float.class) && element.isInt())
+                return CONVERSION_WIDENING + 1;
+            if ((javaParam == double.class || javaParam == Double.class) && (element.isInt() || element.isFloat()))
+                return CONVERSION_WIDENING + 2;
         }
+
         if (javaParam == String.class) {
-            return 20; // String conversion is a common fallback
+            return CONVERSION_STRING_FALLBACK; // String conversion is a common fallback
         }
+
         if (javaParam == Object.class) {
-            return 100; // Object is the most generic, highest cost
+            return CONVERSION_OBJECT_FALLBACK; // Object is the most generic, highest cost
         }
-        return 1000; // Not convertible
+
+        return CONVERSION_IMPOSSIBLE; // Not convertible
     }
 
     private static Object convertDenizenToJava(Class<?> javaParam, ObjectTag denizenParam) {
         if (denizenParam == null) return null;
+
         Object javaObject = denizenParam.getJavaObject();
         if (javaObject != null && javaParam.isInstance(javaObject)) return javaObject;
+
         if (denizenParam instanceof ElementTag element) {
+            // Безопасная конвертация с проверкой диапазонов
             if (javaParam == int.class || javaParam == Integer.class) return element.asInt();
             if (javaParam == double.class || javaParam == Double.class) return element.asDouble();
             if (javaParam == long.class || javaParam == Long.class) return element.asLong();
             if (javaParam == float.class || javaParam == Float.class) return element.asFloat();
             if (javaParam == boolean.class || javaParam == Boolean.class) return element.asBoolean();
-            if (javaParam == short.class || javaParam == Short.class) return (short) element.asInt();
-            if (javaParam == byte.class || javaParam == Byte.class) return (byte) element.asInt();
+
+            if (javaParam == short.class || javaParam == Short.class) {
+                int value = element.asInt();
+                if (value < Short.MIN_VALUE || value > Short.MAX_VALUE) {
+                    throw new IllegalArgumentException("Value " + value + " out of range for short");
+                }
+                return (short) value;
+            }
+
+            if (javaParam == byte.class || javaParam == Byte.class) {
+                int value = element.asInt();
+                if (value < Byte.MIN_VALUE || value > Byte.MAX_VALUE) {
+                    throw new IllegalArgumentException("Value " + value + " out of range for byte");
+                }
+                return (byte) value;
+            }
         }
+
         if (javaParam == String.class) {
             return denizenParam.toString();
         }
+
         return javaObject;
     }
 
     private static Object[] convertParams(Class<?>[] javaParams, List<ObjectTag> denizenParams) {
         Object[] result = new Object[javaParams.length];
         for (int i = 0; i < javaParams.length; i++) {
-            result[i] = convertDenizenToJava(javaParams[i], denizenParams.get(i));
+            try {
+                result[i] = convertDenizenToJava(javaParams[i], denizenParams.get(i));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Parameter " + i + ": " + e.getMessage());
+            }
         }
         return result;
+    }
+
+    // Кэшированное получение конструкторов
+    private static Constructor<?>[] getCachedConstructors(Class<?> clazz) {
+        return constructorCache.computeIfAbsent(clazz.getName(), k -> clazz.getConstructors());
     }
 
     public static Object construct(String className, List<ObjectTag> params, TagContext context) {
@@ -134,7 +199,8 @@ public class ReflectionHandler {
             Constructor<?> bestMatch = null;
             int bestCost = Integer.MAX_VALUE;
 
-            for (Constructor<?> constructor : clazz.getConstructors()) {
+            Constructor<?>[] constructors = getCachedConstructors(clazz);
+            for (Constructor<?> constructor : constructors) {
                 Class<?>[] paramTypes = constructor.getParameterTypes();
                 if (paramTypes.length != params.size()) continue;
 
@@ -142,7 +208,7 @@ public class ReflectionHandler {
                 boolean possible = true;
                 for (int i = 0; i < paramTypes.length; i++) {
                     int cost = calculateConversionCost(paramTypes[i], params.get(i));
-                    if (cost >= 1000) {
+                    if (cost >= CONVERSION_IMPOSSIBLE) {
                         possible = false;
                         break;
                     }
@@ -171,35 +237,50 @@ public class ReflectionHandler {
     }
 
     public static Object invokeMethod(Object instance, String methodName, List<ObjectTag> params, TagContext context) {
+        if (!isClassAllowed(instance.getClass())) {
+            Debug.echoError(context, "Access to class '" + instance.getClass().getName() + "' is denied by the DenizenReflect security configuration.");
+            return null;
+        }
         return invoke(instance.getClass(), instance, methodName, params, context);
     }
 
     public static Object invokeStaticMethod(Class<?> clazz, String methodName, List<ObjectTag> params, TagContext context) {
+        if (!isClassAllowed(clazz)) {
+            Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied by the DenizenReflect security configuration.");
+            return null;
+        }
         return invoke(clazz, null, methodName, params, context);
+    }
+
+    // Кэшированное получение методов
+    private static Method[] getCachedMethods(Class<?> clazz, String methodName, boolean isStatic, int paramCount) {
+        String key = clazz.getName() + ":" + methodName + ":" + isStatic + ":" + paramCount;
+        return methodCache.computeIfAbsent(key, k ->
+                Arrays.stream(clazz.getMethods())
+                        .filter(m -> m.getName().equals(methodName))
+                        .filter(m -> Modifier.isStatic(m.getModifiers()) == isStatic)
+                        .filter(m -> m.getParameterCount() == paramCount)
+                        .toArray(Method[]::new)
+        );
     }
 
     private static Object invoke(Class<?> clazz, Object instance, String methodName, List<ObjectTag> params, TagContext context) {
         try {
-            if (!isClassAllowed(clazz)) {
-                Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied by the DenizenReflect security configuration.");
-                return null;
-            }
-
             Method bestMatch = null;
             int bestCost = Integer.MAX_VALUE;
+            boolean isStatic = (instance == null);
 
-            for (Method method : clazz.getMethods()) {
-                if (!method.getName().equals(methodName)) continue;
-                if (Modifier.isStatic(method.getModifiers()) != (instance == null)) continue; // Match static/instance
+            // Используем кэшированные методы для ускорения поиска
+            Method[] candidateMethods = getCachedMethods(clazz, methodName, isStatic, params.size());
 
+            for (Method method : candidateMethods) {
                 Class<?>[] paramTypes = method.getParameterTypes();
-                if (paramTypes.length != params.size()) continue;
 
                 int currentCost = 0;
                 boolean possible = true;
                 for (int i = 0; i < paramTypes.length; i++) {
                     int cost = calculateConversionCost(paramTypes[i], params.get(i));
-                    if (cost >= 1000) {
+                    if (cost >= CONVERSION_IMPOSSIBLE) {
                         possible = false;
                         break;
                     }
@@ -216,7 +297,9 @@ public class ReflectionHandler {
                 return bestMatch.invoke(instance, javaParams);
             }
             else {
-                String paramTypesStr = params.stream().map(p -> p.getDenizenObjectType().toString()).collect(Collectors.joining(", "));
+                String paramTypesStr = params.stream()
+                        .map(p -> p != null ? p.getDenizenObjectType().toString() : "null")
+                        .collect(Collectors.joining(", "));
                 Debug.echoError(context, "Could not find a matching method '" + methodName + "(" + paramTypesStr + ")' for class '" + clazz.getName() + "'.");
                 return null;
             }
@@ -228,19 +311,23 @@ public class ReflectionHandler {
     }
 
     public static Object getField(Object instance, String fieldName, TagContext context) {
+        if (!isClassAllowed(instance.getClass())) {
+            Debug.echoError(context, "Access to class '" + instance.getClass().getName() + "' is denied.");
+            return null;
+        }
         return accessField(instance.getClass(), instance, fieldName, context);
     }
 
     public static Object getStaticField(Class<?> clazz, String fieldName, TagContext context) {
+        if (!isClassAllowed(clazz)) {
+            Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied.");
+            return null;
+        }
         return accessField(clazz, null, fieldName, context);
     }
 
     private static Object accessField(Class<?> clazz, Object instance, String fieldName, TagContext context) {
         try {
-            if (!isClassAllowed(clazz)) {
-                Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied.");
-                return null;
-            }
             Field field = clazz.getField(fieldName);
             if (Modifier.isStatic(field.getModifiers()) != (instance == null)) {
                 Debug.echoError(context, "Static/instance mismatch for field '" + fieldName + "'.");
@@ -257,19 +344,23 @@ public class ReflectionHandler {
     }
 
     public static void setField(Object instance, String fieldName, ObjectTag value, TagContext context) {
+        if (!isClassAllowed(instance.getClass())) {
+            Debug.echoError(context, "Access to class '" + instance.getClass().getName() + "' is denied.");
+            return;
+        }
         modifyField(instance.getClass(), instance, fieldName, value, context);
     }
 
     public static void setStaticField(Class<?> clazz, String fieldName, ObjectTag value, TagContext context) {
+        if (!isClassAllowed(clazz)) {
+            Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied.");
+            return;
+        }
         modifyField(clazz, null, fieldName, value, context);
     }
 
     private static void modifyField(Class<?> clazz, Object instance, String fieldName, ObjectTag value, TagContext context) {
         try {
-            if (!isClassAllowed(clazz)) {
-                Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied.");
-                return;
-            }
             Field field = clazz.getField(fieldName);
             if (Modifier.isStatic(field.getModifiers()) != (instance == null)) {
                 Debug.echoError(context, "Static/instance mismatch for field '" + fieldName + "'.");

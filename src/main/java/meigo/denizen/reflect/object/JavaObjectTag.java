@@ -12,11 +12,11 @@ import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.denizenscript.denizencore.utilities.text.StringHolder;
 import meigo.denizen.reflect.util.ReflectionHandler;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 public class JavaObjectTag implements ObjectTag, Adjustable {
@@ -25,8 +25,66 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     public final boolean isStatic;
     private UUID uniqueId;
 
-    private static final HashMap<UUID, JavaObjectTag> persistedInstances = new HashMap<>();
+    private static final Map<UUID, JavaObjectTag> persistedInstances = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> lastAccessTimes = new ConcurrentHashMap<>();
     private static final Pattern UUID_PATTERN = Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+
+    // Автоматическая очистка каждые 5 минут для объектов, которые не использовались 5 минут
+    private static final long CLEANUP_INTERVAL_MINUTES = 5;
+    private static final long EXPIRY_TIME_MINUTES = 5;
+
+    private static ScheduledExecutorService cleanupExecutor;
+
+    static {
+        startCleanupTask();
+    }
+
+    private static void startCleanupTask() {
+        if (cleanupExecutor == null) {
+            cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "JavaObjectTag-Cleanup");
+                t.setDaemon(true);
+                return t;
+            });
+
+            cleanupExecutor.scheduleAtFixedRate(() -> {
+                try {
+                    cleanupExpiredInstances();
+                } catch (Exception e) {
+                    Debug.echoError("Error during JavaObjectTag cleanup: " + e.getMessage());
+                }
+            }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
+        }
+    }
+
+    private static void cleanupExpiredInstances() {
+        long currentTime = System.currentTimeMillis();
+        long expiryThreshold = currentTime - TimeUnit.MINUTES.toMillis(EXPIRY_TIME_MINUTES);
+
+        Set<UUID> expiredUUIDs = new HashSet<>();
+
+        for (Map.Entry<UUID, Long> entry : lastAccessTimes.entrySet()) {
+            if (entry.getValue() < expiryThreshold) {
+                expiredUUIDs.add(entry.getKey());
+            }
+        }
+
+        for (UUID expiredUUID : expiredUUIDs) {
+            persistedInstances.remove(expiredUUID);
+            lastAccessTimes.remove(expiredUUID);
+        }
+
+        if (!expiredUUIDs.isEmpty()) {
+            Debug.log("Cleaned up " + expiredUUIDs.size() + " expired JavaObjectTag instances");
+        }
+    }
+
+    public static void shutdown() {
+        if (cleanupExecutor != null) {
+            cleanupExecutor.shutdown();
+            cleanupExecutor = null;
+        }
+    }
 
     public JavaObjectTag(Object object) {
         this.heldObject = object;
@@ -42,6 +100,13 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         if (!isStatic && uniqueId == null) {
             uniqueId = UUID.randomUUID();
             persistedInstances.put(uniqueId, this);
+            lastAccessTimes.put(uniqueId, System.currentTimeMillis());
+        }
+    }
+
+    private void updateAccessTime() {
+        if (uniqueId != null) {
+            lastAccessTimes.put(uniqueId, System.currentTimeMillis());
         }
     }
 
@@ -55,7 +120,9 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         if (UUID_PATTERN.matcher(string).matches()) {
             UUID uuid = CoreUtilities.tryParseUUID(string);
             if (uuid != null && persistedInstances.containsKey(uuid)) {
-                return persistedInstances.get(uuid);
+                JavaObjectTag instance = persistedInstances.get(uuid);
+                instance.updateAccessTime(); // Обновляем время доступа
+                return instance;
             }
         }
 
@@ -65,7 +132,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 if (context == null || context.showErrors()) {
                     Debug.echoError("Access to class '" + clazz.getName() + "' is denied.");
                 }
-                return null;
+                return null; // ИСПРАВЛЕНО: return здесь, а не после
             }
             return new JavaObjectTag(clazz);
         } catch (ClassNotFoundException e) {
@@ -86,6 +153,8 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 attribute.echoError("Cannot invoke an instance method on a static class reference. Use 'static_invoke' instead.");
                 return null;
             }
+            object.updateAccessTime(); // Обновляем время доступа при использовании
+
             String param = attribute.getParam();
             String methodName;
             List<ObjectTag> params;
@@ -94,7 +163,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             if (bracketIndex > -1 && param.endsWith(")")) {
                 methodName = param.substring(0, bracketIndex);
                 String args = param.substring(bracketIndex + 1, param.length() - 1);
-                params = args.isEmpty() ? new ArrayList<>() : ListTag.valueOf(args, attribute.context).objectForms;
+                params = parseArguments(args, attribute.context);
             } else {
                 methodName = param;
                 params = new ArrayList<>();
@@ -109,6 +178,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 attribute.echoError("Cannot invoke a static method on an object instance. Use 'invoke' instead.");
                 return null;
             }
+
             String param = attribute.getParam();
             String methodName;
             List<ObjectTag> params;
@@ -117,7 +187,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             if (bracketIndex > -1 && param.endsWith(")")) {
                 methodName = param.substring(0, bracketIndex);
                 String args = param.substring(bracketIndex + 1, param.length() - 1);
-                params = args.isEmpty() ? new ArrayList<>() : ListTag.valueOf(args, attribute.context).objectForms;
+                params = parseArguments(args, attribute.context);
             } else {
                 methodName = param;
                 params = new ArrayList<>();
@@ -127,12 +197,13 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             return ReflectionHandler.wrapObject(result, attribute.context);
         });
 
-        // Other tags and mechanisms remain the same
         tagProcessor.registerTag(ObjectTag.class, "field", (attribute, object) -> {
             if (object.isStatic) {
                 attribute.echoError("Cannot read an instance field from a static class reference. Use 'static_field' instead.");
                 return null;
             }
+            object.updateAccessTime();
+
             String fieldName = attribute.getParam();
             Object result = ReflectionHandler.getField(object.heldObject, fieldName, attribute.context);
             return ReflectionHandler.wrapObject(result, attribute.context);
@@ -157,6 +228,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             if (object.isStatic) {
                 return object;
             }
+            object.updateAccessTime();
             return CoreUtilities.objectToTagForm(object.heldObject, attribute.context);
         });
 
@@ -166,6 +238,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 mechanism.echoError("Cannot set an instance field on a static class reference.");
                 return;
             }
+            object.updateAccessTime();
             for (Map.Entry<StringHolder, ObjectTag> entry : map.entrySet()) {
                 ReflectionHandler.setField(object.heldObject, entry.getKey().str, entry.getValue(), mechanism.context);
             }
@@ -180,6 +253,20 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 ReflectionHandler.setStaticField((Class<?>) object.heldObject, entry.getKey().str, entry.getValue(), mechanism.context);
             }
         });
+    }
+
+    // Улучшенный парсинг аргументов
+    private static List<ObjectTag> parseArguments(String args, TagContext context) {
+        if (args.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // Для простых случаев без разделителей используем более легкий подход
+        if (!args.contains("|")) {
+            return List.of(new ElementTag(args));
+        }
+
+        return ListTag.valueOf(args, context).objectForms;
     }
 
     @Override public String getPrefix() { return "java"; }
@@ -202,5 +289,5 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     @Override public Object getJavaObject() { return heldObject; }
     @Override public ObjectTag getObjectAttribute(Attribute attribute) { return tagProcessor.getObjectAttribute(this, attribute); }
     @Override public void adjust(Mechanism mechanism) { tagProcessor.processMechanism(this, mechanism); }
-    @Override public void applyProperty(Mechanism mechanism) { Debug.echoError("Cannot apply properties to a JavaObjectTag!"); }
-}
+    @Override public void applyProperty(Mechanism mechanism) { Debug.echoError("Cannot apply properties to a JavaObjectTag!");
+    }}
