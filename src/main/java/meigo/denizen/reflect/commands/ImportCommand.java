@@ -13,18 +13,18 @@ import meigo.denizen.reflect.util.ReflectionHandler;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ReflectCommand extends AbstractCommand {
+public class ImportCommand extends AbstractCommand {
 
-    public ReflectCommand() {
-        setName("reflect");
-        setSyntax("reflect class:<class_name> [constructor:<param>|...] [as:<definition_name>]");
+    public ImportCommand() {
+        setName("import");
+        setSyntax("import class:<class_name> [constructor:<param>|...] [as:<definition_name>]");
         setRequiredArguments(1, 3);
         isProcedural = false;
     }
 
     // <--[command]
-    // @Name reflect
-    // @Syntax reflect class:<class_name> [constructor:<param>|...] [as:<definition_name>]
+    // @Name import
+    // @Syntax import class:<class_name> [constructor:<param>|...] [as:<definition_name>]
     // @Required 1
     // @Maximum 3
     // @Short Creates a new Java object instance or gets a static class reference.

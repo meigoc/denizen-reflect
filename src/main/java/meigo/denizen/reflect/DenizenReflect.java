@@ -3,7 +3,7 @@ package meigo.denizen.reflect;
 import com.denizenscript.denizencore.DenizenCore;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
-import meigo.denizen.reflect.commands.ReflectCommand;
+import meigo.denizen.reflect.commands.ImportCommand;
 import meigo.denizen.reflect.object.JavaObjectTag;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -35,7 +35,7 @@ public class DenizenReflect extends JavaPlugin {
 
         try {
             ObjectFetcher.registerWithObjectFetcher(JavaObjectTag.class, JavaObjectTag.tagProcessor);
-            DenizenCore.commandRegistry.registerCommand(ReflectCommand.class);
+            DenizenCore.commandRegistry.registerCommand(ImportCommand.class);
         }
         catch (Throwable e) {
             Debug.echoError("Error registering DenizenReflect components!");
