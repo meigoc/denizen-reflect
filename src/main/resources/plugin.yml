@@ -1,11 +1,7 @@
 name: DenizenReflect
 author: meigoc
-authors: ['gleb_petrovich (meigoc)', 'https://github.com/meigoc/DenizenReflect']
+authors: ['gleb_petrovich (meigoc)']
 version: ${version}
-main: meigo.denizenreflect.DenizenReflect
-depend: [Denizen, BetterModel]
-website: https://github.com/meigoc/DenizenReflect
-
+main: meigo.denizen.reflect.DenizenReflect
+depend: [Denizen]
 api-version: '1.21'
-
-softdepend: []
