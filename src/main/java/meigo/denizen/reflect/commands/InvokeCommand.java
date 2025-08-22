@@ -150,25 +150,25 @@ public class InvokeCommand extends AbstractCommand {
 
     private Object getTargetObject(String objectString, ScriptEntry scriptEntry) {
         ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, scriptEntry.getContext());
-
-        if (parsed instanceof JavaObjectTag) {
-            JavaObjectTag javaObj = (JavaObjectTag) parsed;
-            return javaObj.isStatic ? javaObj.heldObject : javaObj.heldObject;
-        }
-
-        if (parsed != null) {
-            // Try to get Java object from Denizen object
+        if (parsed != null && !(parsed instanceof ElementTag)) {
+            if (parsed instanceof JavaObjectTag) {
+                return ((JavaObjectTag) parsed).heldObject;
+            }
             Object javaObject = parsed.getJavaObject();
             if (javaObject != null) {
                 return javaObject;
             }
-            // Fallback to the parsed object itself
             return parsed;
         }
-
-        // If all else fails, try to parse as class name
         Class<?> clazz = ReflectionHandler.getClass(objectString, scriptEntry.getContext());
-        return clazz;
+        if (clazz != null) {
+            return clazz;
+        }
+        if (parsed != null) {
+            return parsed.getJavaObject();
+        }
+
+        return null;
     }
 
     private List<ObjectTag> convertArguments(String argumentsString, ScriptEntry scriptEntry) {
