@@ -99,6 +99,14 @@ public class ReflectionHandler {
             return CONVERSION_DIRECT_MATCH; // Direct match
         }
 
+        if (javaParam.isEnum() && denizenParam instanceof ElementTag) {
+            try {
+            Enum.valueOf((Class<Enum>) javaParam, denizenParam.toString().toUpperCase(Locale.ENGLISH));
+                return CONVERSION_PRIMITIVE;
+            } catch (IllegalArgumentException e) {
+            }
+        }
+
         if (denizenParam instanceof ElementTag element) {
             // Точные соответствия примитивов
             if ((javaParam == int.class || javaParam == Integer.class) && element.isInt())
@@ -143,6 +151,11 @@ public class ReflectionHandler {
         if (javaObject != null && javaParam.isInstance(javaObject)) return javaObject;
 
         if (denizenParam instanceof ElementTag element) {
+            Object enumValue = tryConvertElementToEnum(javaParam, element);
+            if (enumValue != null) {
+                return enumValue;
+            }
+
             // Безопасная конвертация с проверкой диапазонов
             if (javaParam == int.class || javaParam == Integer.class) return element.asInt();
             if (javaParam == double.class || javaParam == Double.class) return element.asDouble();
@@ -232,6 +245,19 @@ public class ReflectionHandler {
         } catch (Exception e) {
             Debug.echoError(context, "Error during Java object construction:");
             Debug.echoError(e);
+            return null;
+        }
+    }
+
+    private static Object tryConvertElementToEnum(Class<?> javaParam, ElementTag element) {
+        if (!javaParam.isEnum()) {
+            return null;
+        }
+        try {
+            String enumName = element.asString().toUpperCase(Locale.ENGLISH);
+            return Enum.valueOf((Class<Enum>) javaParam, enumName);
+        }
+        catch (IllegalArgumentException e) {
             return null;
         }
     }
