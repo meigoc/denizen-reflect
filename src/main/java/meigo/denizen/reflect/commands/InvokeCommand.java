@@ -15,6 +15,7 @@ import meigo.denizen.reflect.util.ReflectionHandler;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,52 +23,51 @@ public class InvokeCommand extends AbstractCommand {
 
     public InvokeCommand() {
         setName("invoke");
-        setSyntax("invoke [<object>.<method>([args])]");
+        setSyntax("invoke [<object>.<method>([<args>]).<method2>...]");
         setRequiredArguments(1, 1);
         isProcedural = false;
     }
 
     // <--[command]
     // @Name invoke
-    // @Syntax invoke [<object>.<method>([args])]
+    // @Syntax invoke [<object>.<method>([<args>]).<method2>...]
     // @Required 1
     // @Maximum 1
-    // @Short Invokes a Java method on an object or static class.
+    // @Short Invokes a Java method or a chain of methods on an object or static class.
     // @Group reflection
     //
     // @Description
     // This command invokes a Java method on an object or static class reference.
-    // The syntax is: <object>.<method>([args])
+    // It now supports chaining methods together. The result of the first method call becomes the object for the second, and so on.
+    // The final method in the chain is executed, but its return value is discarded. All intermediate methods in the chain MUST return an object.
+    //
+    // The syntax is: <object>.<method>([args]).<method2>([args2])...
     //
     // The object can be:
-    // - Any Denizen ObjectTag (like <player>, <entity>, etc.) - will be converted to Java object
-    // - A JavaObjectTag (from import command or definitions)
-    // - A definition tag like <[my_object]>
+    // - Any Denizen ObjectTag (like <player>, <entity>, etc.) - will be converted to its underlying Java object.
+    // - A JavaObjectTag (from the 'import' command or as a definition).
     //
-    // Arguments are separated by pipes (|) and can be:
-    // - Simple values: method(arg1|arg2|arg3)
-    // - Typed values: method(java.lang.String@arg1|int@42|boolean@true)
-    //
-    // This command does not return any value - it only executes the method.
+    // Arguments are separated by pipes (|) and can be any Denizen ObjectTag, including definitions and JavaObjectTags.
+    // Arguments can also be typed using a hash (#), for example: int#42, boolean#true, String#hello.
     //
     // @Tags
     // None
     //
     // @Usage
-    // Use to call a method on a player object.
-    // - invoke "<player>.sendMessage(Hello World!)"
+    // Use to call a simple method on a player object.
+    // - invoke "<player>.setHealth(10.0)"
     //
     // @Usage
-    // Use to call a static method.
-    // - invoke "<[system_class]>.currentTimeMillis()"
+    // Use to call a chain of methods to get the plugin manager and disable a plugin.
+    // - invoke "org.bukkit.Bukkit.getPluginManager().disablePlugin(<plugin[MyPlugin]>)"
     //
     // @Usage
-    // Use to call a method with typed arguments.
-    // - invoke "<[my_list]>.add(java.lang.String@Hello|int@42)"
+    // Use to get a player's inventory and clear it.
+    // - invoke "<player>.getInventory().clear()"
     // -->
 
-    private static final Pattern INVOKE_PATTERN = Pattern.compile("^(.+?)\\.([^.()]+)\\((.*)\\)$");
-    private static final Pattern SIMPLE_METHOD_PATTERN = Pattern.compile("^(.+?)\\.([^.()]+)$");
+    // Regex to find a single method call part like ".methodName(arguments)" or ".fieldName"
+    private static final Pattern CHAIN_PART_PATTERN = Pattern.compile("\\.([^.()]+)(?:\\((.*?)\\))?");
 
     @Override
     public void parseArgs(ScriptEntry scriptEntry) throws InvalidArgumentsException {
@@ -93,60 +93,85 @@ public class InvokeCommand extends AbstractCommand {
         }
 
         String fullString = invokeString.asString();
+        int firstDot = findFirstDot(fullString);
 
-        // Parse the invoke string
-        ParsedInvoke parsed = parseInvokeString(fullString, scriptEntry);
-        if (parsed == null) {
-            Debug.echoError(scriptEntry, "Invalid invoke syntax: " + fullString);
+        if (firstDot == -1) {
+            Debug.echoError(scriptEntry, "Invalid invoke syntax: missing a '.' to separate the object from the method/field. Input: " + fullString);
             return;
         }
 
-        // Get the target object
-        Object targetObject = getTargetObject(parsed.objectString, scriptEntry);
-        if (targetObject == null) {
-            Debug.echoError(scriptEntry, "Could not resolve target object: " + parsed.objectString);
+        String objectString = fullString.substring(0, firstDot);
+        String chainString = fullString.substring(firstDot);
+
+        Object currentObject = getTargetObject(objectString, scriptEntry);
+        if (currentObject == null) {
+            Debug.echoError(scriptEntry, "Could not resolve initial target object: " + objectString);
             return;
         }
 
-        // Convert arguments
-        List<ObjectTag> convertedArgs = convertArguments(parsed.arguments, scriptEntry);
+        Matcher matcher = CHAIN_PART_PATTERN.matcher(chainString);
+        int lastMatchEnd = 0;
 
-        // Invoke the method
-        if (targetObject instanceof Class<?>) {
-            // Static method call
-            ReflectionHandler.invokeStaticMethod((Class<?>) targetObject, parsed.methodName, convertedArgs, scriptEntry.getContext());
-        } else {
-            // Instance method call
-            ReflectionHandler.invokeMethod(targetObject, parsed.methodName, convertedArgs, scriptEntry.getContext());
+        while (matcher.find()) {
+            lastMatchEnd = matcher.end();
+            String methodName = matcher.group(1);
+            String argsString = matcher.group(2); // Can be null if no parentheses
+
+            List<ObjectTag> convertedArgs = convertArguments(argsString, scriptEntry);
+
+            boolean isLastPart = (lastMatchEnd == chainString.length());
+            Object result;
+
+            if (currentObject instanceof Class) { // Static call
+                if (argsString == null) { // It's a field access
+                    result = ReflectionHandler.getStaticField((Class<?>) currentObject, methodName, scriptEntry.getContext());
+                }
+                else { // It's a method call
+                    result = ReflectionHandler.invokeStaticMethod((Class<?>) currentObject, methodName, convertedArgs, scriptEntry.getContext());
+                }
+            }
+            else { // Instance call
+                if (argsString == null) { // It's a field access
+                    result = ReflectionHandler.getField(currentObject, methodName, scriptEntry.getContext());
+                }
+                else { // It's a method call
+                    result = ReflectionHandler.invokeMethod(currentObject, methodName, convertedArgs, scriptEntry.getContext());
+                }
+            }
+
+            if (isLastPart) {
+                // This is the end of the chain, we are done.
+                return;
+            }
+
+            if (result == null) {
+                Debug.echoError(scriptEntry, "Method/field '" + methodName + "' on object '" + currentObject + "' returned null, breaking the method chain.");
+                return;
+            }
+            currentObject = result;
+        }
+
+        if (lastMatchEnd != chainString.length()) {
+            Debug.echoError(scriptEntry, "Invalid invoke syntax. Could not parse the part after: '" + chainString.substring(0, lastMatchEnd) + "'");
         }
     }
 
-    private static class ParsedInvoke {
-        String objectString;
-        String methodName;
-        String arguments;
-
-        ParsedInvoke(String objectString, String methodName, String arguments) {
-            this.objectString = objectString;
-            this.methodName = methodName;
-            this.arguments = arguments;
+    // Finds the first dot that is not inside parentheses to correctly separate the initial object from the method chain.
+    private int findFirstDot(String str) {
+        int parenLevel = 0;
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (c == '(') {
+                parenLevel++;
+            }
+            else if (c == ')') {
+                parenLevel--;
+            }
+            else if (c == '.' && parenLevel == 0) {
+                return i;
+            }
         }
-    }
-
-    private ParsedInvoke parseInvokeString(String fullString, ScriptEntry scriptEntry) {
-        // Try pattern with arguments: object.method(args)
-        Matcher matcher = INVOKE_PATTERN.matcher(fullString);
-        if (matcher.matches()) {
-            return new ParsedInvoke(matcher.group(1), matcher.group(2), matcher.group(3));
-        }
-
-        // Try pattern without arguments: object.method
-        matcher = SIMPLE_METHOD_PATTERN.matcher(fullString);
-        if (matcher.matches()) {
-            return new ParsedInvoke(matcher.group(1), matcher.group(2), "");
-        }
-
-        return null;
+        return -1;
     }
 
     private Object getTargetObject(String objectString, ScriptEntry scriptEntry) {
@@ -168,7 +193,6 @@ public class InvokeCommand extends AbstractCommand {
         if (parsed != null) {
             return parsed.getJavaObject();
         }
-
         return null;
     }
 
@@ -176,7 +200,6 @@ public class InvokeCommand extends AbstractCommand {
         if (argumentsString == null || argumentsString.trim().isEmpty()) {
             return new ArrayList<>();
         }
-
         ListTag argList = ListTag.valueOf(argumentsString, scriptEntry.getContext());
         List<ObjectTag> convertedArgs = new ArrayList<>();
 
@@ -184,34 +207,27 @@ public class InvokeCommand extends AbstractCommand {
             ObjectTag processedArg = arg;
             if (processedArg instanceof JavaObjectTag) {
                 Object heldObject = ((JavaObjectTag) processedArg).getJavaObject();
-                processedArg = CoreUtilities.objectToTagForm(heldObject, scriptEntry.getContext());
+                processedArg = CoreUtilities.objectToTagForm(heldObject, scriptEntry.getContext(), false, false, true);
             }
-
             String argStr = processedArg.toString();
-
-            // Check for typed argument (type#value)
             int atIndex = argStr.indexOf('#');
             if (atIndex > 0) {
                 String typeName = argStr.substring(0, atIndex);
                 String value = argStr.substring(atIndex + 1);
-
                 ObjectTag typedArg = createTypedArgument(typeName, value, scriptEntry);
                 if (typedArg != null) {
                     convertedArgs.add(typedArg);
                     continue;
                 }
             }
-
             convertedArgs.add(processedArg);
         }
-
         return convertedArgs;
     }
 
     private ObjectTag createTypedArgument(String typeName, String value, ScriptEntry scriptEntry) {
         try {
-            // Handle primitive types
-            switch (typeName.toLowerCase()) {
+            switch (typeName.toLowerCase(Locale.ENGLISH)) {
                 case "int":
                 case "integer":
                     return new ElementTag(Integer.parseInt(value));
@@ -231,7 +247,6 @@ public class InvokeCommand extends AbstractCommand {
                 case "java.lang.string":
                     return new ElementTag(value);
                 default:
-                    // Try to create object of specified class
                     Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
                     if (clazz != null) {
                         return new ElementTag(value);
