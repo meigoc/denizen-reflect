@@ -29,31 +29,20 @@ public class ReflectionHandler {
     private static final Map<String, Method[]> methodCache = new ConcurrentHashMap<>();
     private static final Map<String, Constructor<?>[]> constructorCache = new ConcurrentHashMap<>();
 
-    /**
-     * Intelligently wraps a raw Java object into a Denizen ObjectTag.
-     * Attempts to convert to native Denizen types first, falling back to JavaObjectTag.
-     */
     public static ObjectTag wrapObject(Object result, TagContext context) {
         if (result == null) {
             return null;
         }
-
         if (result.getClass().isArray()) {
             ListTag list = new ListTag();
             int length = Array.getLength(result);
             for (int i = 0; i < length; i++) {
                 Object item = Array.get(result, i);
-                // Рекурсивно оборачиваем каждый элемент массива
                 list.addObject(CoreUtilities.objectToTagForm(item, context, false, false, true));
             }
             return list;
         }
-
-        // Let DenizenCore try to convert it to a native type (ElementTag, ListTag, etc.)
         ObjectTag converted = CoreUtilities.objectToTagForm(result, context, false, false, false);
-
-        // Heuristic: If the result is a generic ElementTag whose value is just the toString() of the original object,
-        // it's likely a complex type that Denizen doesn't know about. In this case, our JavaObjectTag is more useful.
         if (converted instanceof ElementTag && !isSimpleType(result)) {
             if (converted.identify().equals(result.toString())) {
                 return new JavaObjectTag(result);
@@ -89,59 +78,68 @@ public class ReflectionHandler {
     }
 
     private static int calculateConversionCost(Class<?> javaParam, ObjectTag denizenParam) {
+        // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        // Если нам передали JavaObjectTag, "распаковываем" его и рекурсивно вызываем
+        // оценку для содержимого. Это делает подбор методов более точным.
+        if (denizenParam instanceof JavaObjectTag) {
+            Object heldObject = ((JavaObjectTag) denizenParam).getJavaObject();
+            // CoreUtilities.noDebugContext используется, чтобы избежать спама в консоль при внутренней конвертации
+            return calculateConversionCost(javaParam, CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext));
+        }
+        // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         if (denizenParam == null) {
-            // null может быть передан в non-primitive параметры, но это не лучший матч
             return javaParam.isPrimitive() ? CONVERSION_IMPOSSIBLE : CONVERSION_NULL;
         }
-
         Object javaObject = denizenParam.getJavaObject();
         if (javaObject != null && javaParam.isInstance(javaObject)) {
-            return CONVERSION_DIRECT_MATCH; // Direct match
+            return CONVERSION_DIRECT_MATCH;
         }
 
         if (javaParam.isEnum() && denizenParam instanceof ElementTag) {
             try {
-            Enum.valueOf((Class<Enum>) javaParam, denizenParam.toString().toUpperCase(Locale.ENGLISH));
+                Enum.valueOf((Class<Enum>) javaParam, denizenParam.toString().toUpperCase(Locale.ENGLISH));
                 return CONVERSION_PRIMITIVE;
             } catch (IllegalArgumentException e) {
+                // Not a valid enum constant for this type
             }
         }
 
         if (denizenParam instanceof ElementTag element) {
-            // Точные соответствия примитивов
-            if ((javaParam == int.class || javaParam == Integer.class) && element.isInt())
-                return CONVERSION_PRIMITIVE;
-            if ((javaParam == double.class || javaParam == Double.class) && element.isDouble())
-                return CONVERSION_PRIMITIVE;
-            if ((javaParam == long.class || javaParam == Long.class) && element.isInt())
-                return CONVERSION_PRIMITIVE; // Should be isLong, but Denizen's isInt covers long
-            if ((javaParam == float.class || javaParam == Float.class) && element.isFloat())
-                return CONVERSION_PRIMITIVE + 1;
-            if ((javaParam == boolean.class || javaParam == Boolean.class) && element.isBoolean())
-                return CONVERSION_PRIMITIVE;
-            if ((javaParam == short.class || javaParam == Short.class) && element.isInt())
-                return CONVERSION_PRIMITIVE + 2;
-            if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt())
-                return CONVERSION_PRIMITIVE + 3;
-
-            // Widening primitive conversions
-            if ((javaParam == long.class || javaParam == Long.class) && element.isInt())
-                return CONVERSION_WIDENING;
-            if ((javaParam == float.class || javaParam == Float.class) && element.isInt())
-                return CONVERSION_WIDENING + 1;
-            if ((javaParam == double.class || javaParam == Double.class) && (element.isInt() || element.isFloat()))
-                return CONVERSION_WIDENING + 2;
+            if ((javaParam == int.class || javaParam == Integer.class) && element.isInt()) return CONVERSION_PRIMITIVE;
+            if ((javaParam == double.class || javaParam == Double.class) && element.isDouble()) return CONVERSION_PRIMITIVE;
+            if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return CONVERSION_PRIMITIVE;
+            if ((javaParam == float.class || javaParam == Float.class) && element.isFloat()) return CONVERSION_PRIMITIVE + 1;
+            if ((javaParam == boolean.class || javaParam == Boolean.class) && element.isBoolean()) return CONVERSION_PRIMITIVE;
+            if ((javaParam == short.class || javaParam == Short.class) && element.isInt()) return CONVERSION_PRIMITIVE + 2;
+            if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt()) return CONVERSION_PRIMITIVE + 3;
+            if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return CONVERSION_WIDENING;
+            if ((javaParam == float.class || javaParam == Float.class) && element.isInt()) return CONVERSION_WIDENING + 1;
+            if ((javaParam == double.class || javaParam == Double.class) && (element.isInt() || element.isFloat())) return CONVERSION_WIDENING + 2;
         }
 
         if (javaParam == String.class) {
-            return CONVERSION_STRING_FALLBACK; // String conversion is a common fallback
+            return CONVERSION_STRING_FALLBACK;
         }
 
         if (javaParam == Object.class) {
-            return CONVERSION_OBJECT_FALLBACK; // Object is the most generic, highest cost
+            return CONVERSION_OBJECT_FALLBACK;
         }
 
-        return CONVERSION_IMPOSSIBLE; // Not convertible
+        return CONVERSION_IMPOSSIBLE;
+    }
+
+    private static Object tryConvertElementToEnum(Class<?> javaParam, ElementTag element) {
+        if (!javaParam.isEnum()) {
+            return null;
+        }
+        try {
+            String enumName = element.asString().toUpperCase(Locale.ENGLISH);
+            return Enum.valueOf((Class<Enum>) javaParam, enumName);
+        }
+        catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static Object convertDenizenToJava(Class<?> javaParam, ObjectTag denizenParam) {
@@ -155,14 +153,11 @@ public class ReflectionHandler {
             if (enumValue != null) {
                 return enumValue;
             }
-
-            // Безопасная конвертация с проверкой диапазонов
             if (javaParam == int.class || javaParam == Integer.class) return element.asInt();
             if (javaParam == double.class || javaParam == Double.class) return element.asDouble();
             if (javaParam == long.class || javaParam == Long.class) return element.asLong();
             if (javaParam == float.class || javaParam == Float.class) return element.asFloat();
             if (javaParam == boolean.class || javaParam == Boolean.class) return element.asBoolean();
-
             if (javaParam == short.class || javaParam == Short.class) {
                 int value = element.asInt();
                 if (value < Short.MIN_VALUE || value > Short.MAX_VALUE) {
@@ -170,7 +165,6 @@ public class ReflectionHandler {
                 }
                 return (short) value;
             }
-
             if (javaParam == byte.class || javaParam == Byte.class) {
                 int value = element.asInt();
                 if (value < Byte.MIN_VALUE || value > Byte.MAX_VALUE) {
@@ -183,7 +177,6 @@ public class ReflectionHandler {
         if (javaParam == String.class) {
             return denizenParam.toString();
         }
-
         return javaObject;
     }
 
@@ -199,7 +192,6 @@ public class ReflectionHandler {
         return result;
     }
 
-    // Кэшированное получение конструкторов
     private static Constructor<?>[] getCachedConstructors(Class<?> clazz) {
         return constructorCache.computeIfAbsent(clazz.getName(), k -> clazz.getConstructors());
     }
@@ -233,31 +225,16 @@ public class ReflectionHandler {
                     bestMatch = constructor;
                 }
             }
-
             if (bestMatch != null) {
                 Object[] javaParams = convertParams(bestMatch.getParameterTypes(), params);
                 return bestMatch.newInstance(javaParams);
-            }
-            else {
+            } else {
                 Debug.echoError(context, "Could not find a matching constructor for class '" + className + "' with the provided parameters.");
                 return null;
             }
         } catch (Exception e) {
             Debug.echoError(context, "Error during Java object construction:");
             Debug.echoError(e);
-            return null;
-        }
-    }
-
-    private static Object tryConvertElementToEnum(Class<?> javaParam, ElementTag element) {
-        if (!javaParam.isEnum()) {
-            return null;
-        }
-        try {
-            String enumName = element.asString().toUpperCase(Locale.ENGLISH);
-            return Enum.valueOf((Class<Enum>) javaParam, enumName);
-        }
-        catch (IllegalArgumentException e) {
             return null;
         }
     }
@@ -278,7 +255,6 @@ public class ReflectionHandler {
         return invoke(clazz, null, methodName, params, context);
     }
 
-    // Кэшированное получение методов
     private static Method[] getCachedMethods(Class<?> clazz, String methodName, boolean isStatic, int paramCount) {
         String key = clazz.getName() + ":" + methodName + ":" + isStatic + ":" + paramCount;
         return methodCache.computeIfAbsent(key, k ->
@@ -296,12 +272,10 @@ public class ReflectionHandler {
             int bestCost = Integer.MAX_VALUE;
             boolean isStatic = (instance == null);
 
-            // Используем кэшированные методы для ускорения поиска
             Method[] candidateMethods = getCachedMethods(clazz, methodName, isStatic, params.size());
 
             for (Method method : candidateMethods) {
                 Class<?>[] paramTypes = method.getParameterTypes();
-
                 int currentCost = 0;
                 boolean possible = true;
                 for (int i = 0; i < paramTypes.length; i++) {
@@ -321,8 +295,7 @@ public class ReflectionHandler {
             if (bestMatch != null) {
                 Object[] javaParams = convertParams(bestMatch.getParameterTypes(), params);
                 return bestMatch.invoke(instance, javaParams);
-            }
-            else {
+            } else {
                 String paramTypesStr = params.stream()
                         .map(p -> p != null ? p.getDenizenObjectType().toString() : "null")
                         .collect(Collectors.joining(", "));
