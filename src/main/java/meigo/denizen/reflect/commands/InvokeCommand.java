@@ -177,27 +177,19 @@ public class InvokeCommand extends AbstractCommand {
             return new ArrayList<>();
         }
 
-        // Split arguments by pipe
         ListTag argList = ListTag.valueOf(argumentsString, scriptEntry.getContext());
         List<ObjectTag> convertedArgs = new ArrayList<>();
 
         for (ObjectTag arg : argList.objectForms) {
             ObjectTag processedArg = arg;
-
-            // --- НАЧАЛО НОВОГО КОДА ---
-            // Если аргумент - это наша кастомная обертка JavaObjectTag...
             if (processedArg instanceof JavaObjectTag) {
-                // ...то мы достаем из нее "чистый" Java-объект...
                 Object heldObject = ((JavaObjectTag) processedArg).getJavaObject();
-                // ...и преобразуем его в стандартный ObjectTag, который Denizen понимает.
-                // Например, Enum станет ElementTag с его именем (SURVIVAL).
                 processedArg = CoreUtilities.objectToTagForm(heldObject, scriptEntry.getContext());
             }
-            // --- КОНЕЦ НОВОГО КОДА ---
 
             String argStr = processedArg.toString();
 
-            // Check for typed argument (type@value)
+            // Check for typed argument (type#value)
             int atIndex = argStr.indexOf('#');
             if (atIndex > 0) {
                 String typeName = argStr.substring(0, atIndex);
@@ -210,7 +202,6 @@ public class InvokeCommand extends AbstractCommand {
                 }
             }
 
-            // Default: use the processed argument
             convertedArgs.add(processedArg);
         }
 
@@ -243,8 +234,6 @@ public class InvokeCommand extends AbstractCommand {
                     // Try to create object of specified class
                     Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
                     if (clazz != null) {
-                        // For now, just return the value as ElementTag
-                        // More complex object creation could be implemented later
                         return new ElementTag(value);
                     }
                     break;

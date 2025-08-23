@@ -132,7 +132,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 if (context == null || context.showErrors()) {
                     Debug.echoError("Access to class '" + clazz.getName() + "' is denied.");
                 }
-                return null; // ИСПРАВЛЕНО: return здесь, а не после
+                return null;
             }
             return new JavaObjectTag(clazz);
         } catch (ClassNotFoundException e) {
@@ -149,12 +149,6 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     public static void register() {
         // --- TAGS ---
         tagProcessor.registerTag(ObjectTag.class, "invoke", (attribute, object) -> {
-            if (object.isStatic) {
-                attribute.echoError("Cannot invoke an instance method on a static class reference. Use 'static_invoke' instead.");
-                return null;
-            }
-            object.updateAccessTime(); // Обновляем время доступа при использовании
-
             String param = attribute.getParam();
             String methodName;
             List<ObjectTag> params;
@@ -169,53 +163,28 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 params = new ArrayList<>();
             }
 
-            Object result = ReflectionHandler.invokeMethod(object.heldObject, methodName, params, attribute.context);
-            return ReflectionHandler.wrapObject(result, attribute.context);
-        });
-
-        tagProcessor.registerTag(ObjectTag.class, "static_invoke", (attribute, object) -> {
-            if (!object.isStatic) {
-                attribute.echoError("Cannot invoke a static method on an object instance. Use 'invoke' instead.");
-                return null;
-            }
-
-            String param = attribute.getParam();
-            String methodName;
-            List<ObjectTag> params;
-
-            int bracketIndex = param.indexOf('(');
-            if (bracketIndex > -1 && param.endsWith(")")) {
-                methodName = param.substring(0, bracketIndex);
-                String args = param.substring(bracketIndex + 1, param.length() - 1);
-                params = parseArguments(args, attribute.context);
+            Object result;
+            if (object.isStatic) {
+                result = ReflectionHandler.invokeStaticMethod((Class<?>) object.heldObject, methodName, params, attribute.context);
             } else {
-                methodName = param;
-                params = new ArrayList<>();
+                object.updateAccessTime();
+                result = ReflectionHandler.invokeMethod(object.heldObject, methodName, params, attribute.context);
             }
 
-            Object result = ReflectionHandler.invokeStaticMethod((Class<?>) object.heldObject, methodName, params, attribute.context);
             return ReflectionHandler.wrapObject(result, attribute.context);
         });
 
         tagProcessor.registerTag(ObjectTag.class, "field", (attribute, object) -> {
+            String fieldName = attribute.getParam();
+            Object result;
+
             if (object.isStatic) {
-                attribute.echoError("Cannot read an instance field from a static class reference. Use 'static_field' instead.");
-                return null;
+                result = ReflectionHandler.getStaticField((Class<?>) object.heldObject, fieldName, attribute.context);
+            } else {
+                object.updateAccessTime();
+                result = ReflectionHandler.getField(object.heldObject, fieldName, attribute.context);
             }
-            object.updateAccessTime();
 
-            String fieldName = attribute.getParam();
-            Object result = ReflectionHandler.getField(object.heldObject, fieldName, attribute.context);
-            return ReflectionHandler.wrapObject(result, attribute.context);
-        });
-
-        tagProcessor.registerTag(ObjectTag.class, "static_field", (attribute, object) -> {
-            if (!object.isStatic) {
-                attribute.echoError("Cannot read a static field from an object instance. Use 'field' instead.");
-                return null;
-            }
-            String fieldName = attribute.getParam();
-            Object result = ReflectionHandler.getStaticField((Class<?>) object.heldObject, fieldName, attribute.context);
             return ReflectionHandler.wrapObject(result, attribute.context);
         });
 
@@ -234,23 +203,13 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
 
         // --- MECHANISMS ---
         tagProcessor.registerMechanism("set_field", false, MapTag.class, (object, mechanism, map) -> {
-            if (object.isStatic) {
-                mechanism.echoError("Cannot set an instance field on a static class reference.");
-                return;
-            }
-            object.updateAccessTime();
             for (Map.Entry<StringHolder, ObjectTag> entry : map.entrySet()) {
-                ReflectionHandler.setField(object.heldObject, entry.getKey().str, entry.getValue(), mechanism.context);
-            }
-        });
-
-        tagProcessor.registerMechanism("set_static_field", false, MapTag.class, (object, mechanism, map) -> {
-            if (!object.isStatic) {
-                mechanism.echoError("Cannot set a static field on an object instance.");
-                return;
-            }
-            for (Map.Entry<StringHolder, ObjectTag> entry : map.entrySet()) {
-                ReflectionHandler.setStaticField((Class<?>) object.heldObject, entry.getKey().str, entry.getValue(), mechanism.context);
+                if (object.isStatic) {
+                    ReflectionHandler.setStaticField((Class<?>) object.heldObject, entry.getKey().str, entry.getValue(), mechanism.context);
+                } else {
+                    object.updateAccessTime();
+                    ReflectionHandler.setField(object.heldObject, entry.getKey().str, entry.getValue(), mechanism.context);
+                }
             }
         });
     }
@@ -289,5 +248,5 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     @Override public Object getJavaObject() { return heldObject; }
     @Override public ObjectTag getObjectAttribute(Attribute attribute) { return tagProcessor.getObjectAttribute(this, attribute); }
     @Override public void adjust(Mechanism mechanism) { tagProcessor.processMechanism(this, mechanism); }
-    @Override public void applyProperty(Mechanism mechanism) { Debug.echoError("Cannot apply properties to a JavaObjectTag!");
-    }}
+    @Override public void applyProperty(Mechanism mechanism) { Debug.echoError("Cannot apply properties to a JavaObjectTag!"); }
+}
