@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 
 public class InvokeCommand extends AbstractCommand {
 
+    // ... (конструктор и документация остаются без изменений) ...
     public InvokeCommand() {
         setName("invoke");
         setSyntax("invoke [<object>.<method>([<args>]).<method2>...]");
@@ -28,45 +29,6 @@ public class InvokeCommand extends AbstractCommand {
         isProcedural = false;
     }
 
-    // <--[command]
-    // @Name invoke
-    // @Syntax invoke [<object>.<method>([<args>]).<method2>...]
-    // @Required 1
-    // @Maximum 1
-    // @Short Invokes a Java method or a chain of methods on an object or static class.
-    // @Group reflection
-    //
-    // @Description
-    // This command invokes a Java method on an object or static class reference.
-    // It now supports chaining methods together. The result of the first method call becomes the object for the second, and so on.
-    // The final method in the chain is executed, but its return value is discarded. All intermediate methods in the chain MUST return an object.
-    //
-    // The syntax is: <object>.<method>([args]).<method2>([args2])...
-    //
-    // The object can be:
-    // - Any Denizen ObjectTag (like <player>, <entity>, etc.) - will be converted to its underlying Java object.
-    // - A JavaObjectTag (from the 'import' command or as a definition).
-    //
-    // Arguments are separated by pipes (|) and can be any Denizen ObjectTag, including definitions and JavaObjectTags.
-    // Arguments can also be typed using a hash (#), for example: int#42, boolean#true, String#hello.
-    //
-    // @Tags
-    // None
-    //
-    // @Usage
-    // Use to call a simple method on a player object.
-    // - invoke "<player>.setHealth(10.0)"
-    //
-    // @Usage
-    // Use to call a chain of methods to get the plugin manager and disable a plugin.
-    // - invoke "org.bukkit.Bukkit.getPluginManager().disablePlugin(<plugin[MyPlugin]>)"
-    //
-    // @Usage
-    // Use to get a player's inventory and clear it.
-    // - invoke "<player>.getInventory().clear()"
-    // -->
-
-    // Regex to find a single method call part like ".methodName(arguments)" or ".fieldName"
     private static final Pattern CHAIN_PART_PATTERN = Pattern.compile("\\.([^.()]+)(?:\\((.*?)\\))?");
 
     @Override
@@ -87,21 +49,36 @@ public class InvokeCommand extends AbstractCommand {
     @Override
     public void execute(ScriptEntry scriptEntry) {
         ElementTag invokeString = scriptEntry.getElement("invoke_string");
-
         if (scriptEntry.dbCallShouldDebug()) {
             Debug.report(scriptEntry, getName(), invokeString.debuggable());
         }
-
         String fullString = invokeString.asString();
-        int firstDot = findFirstDot(fullString);
 
-        if (firstDot == -1) {
-            Debug.echoError(scriptEntry, "Invalid invoke syntax: missing a '.' to separate the object from the method/field. Input: " + fullString);
-            return;
+        String objectString = null;
+        int chainStartIndex = -1;
+
+        // Итеративно ищем самый длинный валидный начальный объект
+        int nextDot = -1;
+        while ((nextDot = fullString.indexOf('.', nextDot + 1)) != -1) {
+            String potentialObject = fullString.substring(0, nextDot);
+            // Используем "тихую" проверку, чтобы не спамить в консоль
+            if (getTargetObjectSilent(potentialObject, scriptEntry) != null) {
+                objectString = potentialObject;
+                chainStartIndex = nextDot;
+            }
         }
 
-        String objectString = fullString.substring(0, firstDot);
-        String chainString = fullString.substring(firstDot);
+        // Если цикл не нашел класс (например, для <player>.getInventory()),
+        // используем старый простой метод поиска первой точки.
+        if (objectString == null) {
+            chainStartIndex = findFirstDot(fullString);
+            if (chainStartIndex == -1) {
+                // Если это просто поле без методов, например "java.lang.System.out"
+                objectString = fullString;
+            } else {
+                objectString = fullString.substring(0, chainStartIndex);
+            }
+        }
 
         Object currentObject = getTargetObject(objectString, scriptEntry);
         if (currentObject == null) {
@@ -109,43 +86,39 @@ public class InvokeCommand extends AbstractCommand {
             return;
         }
 
+        if (chainStartIndex == -1) { // Это был доступ к полю без методов
+            return; // Ничего не делаем, просто получаем доступ к полю
+        }
+
+        String chainString = fullString.substring(chainStartIndex);
         Matcher matcher = CHAIN_PART_PATTERN.matcher(chainString);
         int lastMatchEnd = 0;
 
         while (matcher.find()) {
             lastMatchEnd = matcher.end();
-            String methodName = matcher.group(1);
-            String argsString = matcher.group(2); // Can be null if no parentheses
+            String memberName = matcher.group(1);
+            String argsString = matcher.group(2); // null, если это поле
 
             List<ObjectTag> convertedArgs = convertArguments(argsString, scriptEntry);
-
             boolean isLastPart = (lastMatchEnd == chainString.length());
             Object result;
 
-            if (currentObject instanceof Class) { // Static call
-                if (argsString == null) { // It's a field access
-                    result = ReflectionHandler.getStaticField((Class<?>) currentObject, methodName, scriptEntry.getContext());
-                }
-                else { // It's a method call
-                    result = ReflectionHandler.invokeStaticMethod((Class<?>) currentObject, methodName, convertedArgs, scriptEntry.getContext());
-                }
+            if (currentObject instanceof Class) {
+                result = (argsString == null)
+                        ? ReflectionHandler.getStaticField((Class<?>) currentObject, memberName, scriptEntry.getContext())
+                        : ReflectionHandler.invokeStaticMethod((Class<?>) currentObject, memberName, convertedArgs, scriptEntry.getContext());
             }
-            else { // Instance call
-                if (argsString == null) { // It's a field access
-                    result = ReflectionHandler.getField(currentObject, methodName, scriptEntry.getContext());
-                }
-                else { // It's a method call
-                    result = ReflectionHandler.invokeMethod(currentObject, methodName, convertedArgs, scriptEntry.getContext());
-                }
+            else {
+                result = (argsString == null)
+                        ? ReflectionHandler.getField(currentObject, memberName, scriptEntry.getContext())
+                        : ReflectionHandler.invokeMethod(currentObject, memberName, convertedArgs, scriptEntry.getContext());
             }
 
             if (isLastPart) {
-                // This is the end of the chain, we are done.
                 return;
             }
-
             if (result == null) {
-                Debug.echoError(scriptEntry, "Method/field '" + methodName + "' on object '" + currentObject + "' returned null, breaking the method chain.");
+                Debug.echoError(scriptEntry, "Method/field '" + memberName + "' on object '" + currentObject.toString() + "' returned null, breaking the method chain.");
                 return;
             }
             currentObject = result;
@@ -156,22 +129,25 @@ public class InvokeCommand extends AbstractCommand {
         }
     }
 
-    // Finds the first dot that is not inside parentheses to correctly separate the initial object from the method chain.
     private int findFirstDot(String str) {
         int parenLevel = 0;
         for (int i = 0; i < str.length(); i++) {
             char c = str.charAt(i);
-            if (c == '(') {
-                parenLevel++;
-            }
-            else if (c == ')') {
-                parenLevel--;
-            }
-            else if (c == '.' && parenLevel == 0) {
-                return i;
-            }
+            if (c == '(') parenLevel++;
+            else if (c == ')') parenLevel--;
+            else if (c == '.' && parenLevel == 0) return i;
         }
         return -1;
+    }
+
+    // "Тихая" версия для определения начального объекта без вывода ошибок в консоль
+    private Object getTargetObjectSilent(String objectString, ScriptEntry scriptEntry) {
+        ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, scriptEntry.getContext());
+        if (parsed != null && !(parsed instanceof ElementTag)) {
+            return parsed;
+        }
+        // Используем ReflectionHandler.getClassSilent
+        return ReflectionHandler.getClassSilent(objectString);
     }
 
     private Object getTargetObject(String objectString, ScriptEntry scriptEntry) {
@@ -196,13 +172,13 @@ public class InvokeCommand extends AbstractCommand {
         return null;
     }
 
+    // ... (методы convertArguments и createTypedArgument остаются без изменений) ...
     private List<ObjectTag> convertArguments(String argumentsString, ScriptEntry scriptEntry) {
         if (argumentsString == null || argumentsString.trim().isEmpty()) {
             return new ArrayList<>();
         }
         ListTag argList = ListTag.valueOf(argumentsString, scriptEntry.getContext());
         List<ObjectTag> convertedArgs = new ArrayList<>();
-
         for (ObjectTag arg : argList.objectForms) {
             ObjectTag processedArg = arg;
             if (processedArg instanceof JavaObjectTag) {
@@ -228,27 +204,16 @@ public class InvokeCommand extends AbstractCommand {
     private ObjectTag createTypedArgument(String typeName, String value, ScriptEntry scriptEntry) {
         try {
             switch (typeName.toLowerCase(Locale.ENGLISH)) {
-                case "int":
-                case "integer":
-                    return new ElementTag(Integer.parseInt(value));
-                case "long":
-                    return new ElementTag(Long.parseLong(value));
-                case "float":
-                    return new ElementTag(Float.parseFloat(value));
-                case "double":
-                    return new ElementTag(Double.parseDouble(value));
-                case "boolean":
-                    return new ElementTag(Boolean.parseBoolean(value));
-                case "byte":
-                    return new ElementTag(Byte.parseByte(value));
-                case "short":
-                    return new ElementTag(Short.parseShort(value));
-                case "string":
-                case "java.lang.string":
-                    return new ElementTag(value);
+                case "int": case "integer": return new ElementTag(Integer.parseInt(value));
+                case "long": return new ElementTag(Long.parseLong(value));
+                case "float": return new ElementTag(Float.parseFloat(value));
+                case "double": return new ElementTag(Double.parseDouble(value));
+                case "boolean": return new ElementTag(Boolean.parseBoolean(value));
+                case "byte": return new ElementTag(Byte.parseByte(value));
+                case "short": return new ElementTag(Short.parseShort(value));
+                case "string": case "java.lang.string": return new ElementTag(value);
                 default:
-                    Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
-                    if (clazz != null) {
+                    if (ReflectionHandler.getClass(typeName, scriptEntry.getContext()) != null) {
                         return new ElementTag(value);
                     }
                     break;

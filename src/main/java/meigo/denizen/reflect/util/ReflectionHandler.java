@@ -378,4 +378,17 @@ public class ReflectionHandler {
             Debug.echoError(e);
         }
     }
+
+    public static Class<?> getClassSilent(String className) {
+        try {
+            Class<?> clazz = Class.forName(className);
+            if (!isClassAllowed(clazz)) {
+                return null;
+            }
+            return clazz;
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+    }
+
 }
