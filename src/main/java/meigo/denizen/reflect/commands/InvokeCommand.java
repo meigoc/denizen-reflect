@@ -198,7 +198,7 @@ public class InvokeCommand extends AbstractCommand {
             String argStr = processedArg.toString();
 
             // Check for typed argument (type@value)
-            int atIndex = argStr.indexOf('@');
+            int atIndex = argStr.indexOf('#');
             if (atIndex > 0) {
                 String typeName = argStr.substring(0, atIndex);
                 String value = argStr.substring(atIndex + 1);
