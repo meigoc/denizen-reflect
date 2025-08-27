@@ -24,6 +24,45 @@ public class ImportCommand extends AbstractCommand {
         isProcedural = false;
     }
 
+    // <--[command]
+    // @Name import
+    // @Syntax import [<class_name>] [constructor:<param>|...] [as:<definition_name>]
+    // @Required 1
+    // @Maximum 3
+    // @Short Creates a new Java object instance or gets a static class reference.
+    // @Group reflection
+    //
+    // @Description
+    // This command is the entry point for Java reflection in Denizen.
+    // It allows you to create an instance of a Java class or get a reference to the class itself for static access.
+    //
+    // The first argument is required and must be the fully qualified name of the class (e.g., "java.util.ArrayList").
+    // Access to classes is restricted by the 'allowed-packages' list in the config.yml for security.
+    //
+    // The 'constructor' argument is optional. If provided, the command will attempt to create a new instance
+    // of the class by finding a constructor that matches the provided parameters. Parameters can be any ObjectTag,
+    // including typed arguments like 'int#42'.
+    // If omitted, the command will attempt to use the default no-argument constructor. If no constructor argument is given
+    // at all, the command returns a static reference to the class itself, which can be used for static method/field access.
+    //
+    // The 'as' argument is optional and specifies the name of the definition to save the created JavaObjectTag into.
+    //
+    // @Tags
+    // <entry[saveName].created_object> returns the created JavaObjectTag.
+    //
+    // @Usage
+    // Use to create a new ArrayList and save it to the definition 'my_list'.
+    // - import java.util.ArrayList as:my_list
+    //
+    // @Usage
+    // Use to get a static reference to the 'java.lang.System' class.
+    // - import java.lang.System as:system
+    //
+    // @Usage
+    // Use to create a new 'java.awt.Point' object with a specific constructor.
+    // - import java.awt.Point constructor:int#10|int#20 as:my_point
+    // -->
+
     @Override
     public void parseArgs(ScriptEntry scriptEntry) throws InvalidArgumentsException {
         for (Argument arg : scriptEntry) {
@@ -65,7 +104,6 @@ public class ImportCommand extends AbstractCommand {
         }
 
         // If 'constructor' argument is present (even if empty), create an instance.
-        // IMPORTANT: Do NOT pre-convert constructor args here; pass raw ObjectTag list to ReflectionHandler.construct.
         List<ObjectTag> params = convertConstructorArgs(constructorArgs, scriptEntry);
         Object newInstance = ReflectionHandler.construct(className.asString(), params, scriptEntry.getContext());
 
@@ -82,7 +120,6 @@ public class ImportCommand extends AbstractCommand {
         if (args == null) {
             return new ArrayList<>();
         }
-        // We still parse typed literals like int#5, string#foo etc.
         List<ObjectTag> convertedArgs = new ArrayList<>();
         for (ObjectTag arg : args.objectForms) {
             String argStr = arg.toString();
@@ -96,7 +133,6 @@ public class ImportCommand extends AbstractCommand {
                     continue;
                 }
             }
-            // Keep the original ObjectTag (so JavaObjectTag stays JavaObjectTag)
             convertedArgs.add(arg);
         }
         return convertedArgs;
@@ -124,10 +160,9 @@ public class ImportCommand extends AbstractCommand {
                 case "java.lang.string":
                     return new ElementTag(value);
                 default:
-                    // If typeName resolves to a Class, return JavaObjectTag wrapping that Class (so constructor can receive Class<?>)
                     Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
                     if (clazz != null) {
-                        return new JavaObjectTag(clazz);
+                        return new ElementTag(value);
                     }
                     break;
             }
