@@ -13,10 +13,6 @@ import com.denizenscript.denizencore.utilities.text.StringHolder;
 import meigo.denizen.reflect.util.ReflectionHandler;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 public class JavaObjectTag implements ObjectTag, Adjustable {
@@ -25,66 +21,10 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     public final boolean isStatic;
     private UUID uniqueId;
 
-    private static final Map<UUID, JavaObjectTag> persistedInstances = new ConcurrentHashMap<>();
-    private static final Map<UUID, Long> lastAccessTimes = new ConcurrentHashMap<>();
+    // Persisted instances (storage only — automatic cleanup was removed).
+    private static final Map<UUID, JavaObjectTag> persistedInstances = new HashMap<>();
+    private static final Map<UUID, Long> lastAccessTimes = new HashMap<>();
     private static final Pattern UUID_PATTERN = Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-
-    // Автоматическая очистка каждые 5 минут для объектов, которые не использовались 5 минут
-    private static final long CLEANUP_INTERVAL_MINUTES = 5;
-    private static final long EXPIRY_TIME_MINUTES = 5;
-
-    private static ScheduledExecutorService cleanupExecutor;
-
-    static {
-        startCleanupTask();
-    }
-
-    private static void startCleanupTask() {
-        if (cleanupExecutor == null) {
-            cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "JavaObjectTag-Cleanup");
-                t.setDaemon(true);
-                return t;
-            });
-
-            cleanupExecutor.scheduleAtFixedRate(() -> {
-                try {
-                    cleanupExpiredInstances();
-                } catch (Exception e) {
-                    Debug.echoError("Error during JavaObjectTag cleanup: " + e.getMessage());
-                }
-            }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
-        }
-    }
-
-    private static void cleanupExpiredInstances() {
-        long currentTime = System.currentTimeMillis();
-        long expiryThreshold = currentTime - TimeUnit.MINUTES.toMillis(EXPIRY_TIME_MINUTES);
-
-        Set<UUID> expiredUUIDs = new HashSet<>();
-
-        for (Map.Entry<UUID, Long> entry : lastAccessTimes.entrySet()) {
-            if (entry.getValue() < expiryThreshold) {
-                expiredUUIDs.add(entry.getKey());
-            }
-        }
-
-        for (UUID expiredUUID : expiredUUIDs) {
-            persistedInstances.remove(expiredUUID);
-            lastAccessTimes.remove(expiredUUID);
-        }
-
-        if (!expiredUUIDs.isEmpty()) {
-            Debug.log("Cleaned up " + expiredUUIDs.size() + " expired JavaObjectTag instances");
-        }
-    }
-
-    public static void shutdown() {
-        if (cleanupExecutor != null) {
-            cleanupExecutor.shutdown();
-            cleanupExecutor = null;
-        }
-    }
 
     public JavaObjectTag(Object object) {
         this.heldObject = object;
@@ -121,7 +61,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             UUID uuid = CoreUtilities.tryParseUUID(string);
             if (uuid != null && persistedInstances.containsKey(uuid)) {
                 JavaObjectTag instance = persistedInstances.get(uuid);
-                instance.updateAccessTime(); // Обновляем время доступа
+                instance.updateAccessTime(); // Update access time for storage record
                 return instance;
             }
         }
@@ -136,7 +76,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             }
             return new JavaObjectTag(clazz);
         } catch (ClassNotFoundException e) {
-            return null; // It's not a class name, which is fine.
+            return null; // Not a class name; that's okay.
         }
     }
 
@@ -198,7 +138,20 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 return object;
             }
             object.updateAccessTime();
-            return CoreUtilities.objectToTagForm(object.heldObject, attribute.context);
+            // For non-simple Java objects, return JavaObjectTag so methods remain accessible.
+            Object held = object.heldObject;
+            if (held == null) return null;
+            // If CoreUtilities can convert it to a Denizen native form, prefer it for simple types.
+            ObjectTag converted = CoreUtilities.objectToTagForm(held, attribute.context, false, false, false);
+            if (converted instanceof ElementTag) {
+                // If result is simple (string/number/bool), return converted, otherwise return JavaObjectTag
+                if (held instanceof String || held instanceof Number || held instanceof Boolean) {
+                    return converted;
+                } else {
+                    return object;
+                }
+            }
+            return converted;
         });
 
         // --- MECHANISMS ---
@@ -214,17 +167,11 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         });
     }
 
-    // Улучшенный парсинг аргументов
+    // Improved parsing of arguments: always use ListTag parser to correctly understand Denizen escaping / tags.
     private static List<ObjectTag> parseArguments(String args, TagContext context) {
-        if (args.isEmpty()) {
+        if (args == null || args.isEmpty()) {
             return Collections.emptyList();
         }
-
-        // Для простых случаев без разделителей используем более легкий подход
-        if (!args.contains("|")) {
-            return List.of(new ElementTag(args));
-        }
-
         return ListTag.valueOf(args, context).objectForms;
     }
 
