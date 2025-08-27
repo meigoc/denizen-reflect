@@ -21,7 +21,6 @@ import java.util.regex.Pattern;
 
 public class InvokeCommand extends AbstractCommand {
 
-    // ... (конструктор и документация остаются без изменений) ...
     public InvokeCommand() {
         setName("invoke");
         setSyntax("invoke [<object>.<method>([<args>]).<method2>...]");
@@ -29,6 +28,8 @@ public class InvokeCommand extends AbstractCommand {
         isProcedural = false;
     }
 
+    // Note: CHAIN_PART_PATTERN is intentionally simple — full parsing is done by findFirstDot() and by
+    // parse of arguments via ListTag.valueOf in convertArguments.
     private static final Pattern CHAIN_PART_PATTERN = Pattern.compile("\\.([^.()]+)(?:\\((.*?)\\))?");
 
     @Override
@@ -57,23 +58,22 @@ public class InvokeCommand extends AbstractCommand {
         String objectString = null;
         int chainStartIndex = -1;
 
-        // Итеративно ищем самый длинный валидный начальный объект
+        // Iteratively search for the longest valid starting object (supports <player> etc.)
         int nextDot = -1;
         while ((nextDot = fullString.indexOf('.', nextDot + 1)) != -1) {
             String potentialObject = fullString.substring(0, nextDot);
-            // Используем "тихую" проверку, чтобы не спамить в консоль
+            // Quiet check: don't spam console
             if (getTargetObjectSilent(potentialObject, scriptEntry) != null) {
                 objectString = potentialObject;
                 chainStartIndex = nextDot;
             }
         }
 
-        // Если цикл не нашел класс (например, для <player>.getInventory()),
-        // используем старый простой метод поиска первой точки.
+        // If nothing found (e.g. <player>.getInventory()), use simpler first-dot logic.
         if (objectString == null) {
             chainStartIndex = findFirstDot(fullString);
             if (chainStartIndex == -1) {
-                // Если это просто поле без методов, например "java.lang.System.out"
+                // It's a field access without methods, e.g. "java.lang.System.out"
                 objectString = fullString;
             } else {
                 objectString = fullString.substring(0, chainStartIndex);
@@ -86,8 +86,8 @@ public class InvokeCommand extends AbstractCommand {
             return;
         }
 
-        if (chainStartIndex == -1) { // Это был доступ к полю без методов
-            return; // Ничего не делаем, просто получаем доступ к полю
+        if (chainStartIndex == -1) { // Access to field only, no method chain; nothing to do here.
+            return;
         }
 
         String chainString = fullString.substring(chainStartIndex);
@@ -97,7 +97,7 @@ public class InvokeCommand extends AbstractCommand {
         while (matcher.find()) {
             lastMatchEnd = matcher.end();
             String memberName = matcher.group(1);
-            String argsString = matcher.group(2); // null, если это поле
+            String argsString = matcher.group(2); // null if this part is a field access
 
             List<ObjectTag> convertedArgs = convertArguments(argsString, scriptEntry);
             boolean isLastPart = (lastMatchEnd == chainString.length());
@@ -115,6 +115,7 @@ public class InvokeCommand extends AbstractCommand {
             }
 
             if (isLastPart) {
+                // finished evaluation chain — nothing to return from command context
                 return;
             }
             if (result == null) {
@@ -131,8 +132,11 @@ public class InvokeCommand extends AbstractCommand {
 
     private int findFirstDot(String str) {
         int parenLevel = 0;
+        boolean inQuote = false;
         for (int i = 0; i < str.length(); i++) {
             char c = str.charAt(i);
+            if (c == '"') inQuote = !inQuote;
+            if (inQuote) continue;
             if (c == '(') parenLevel++;
             else if (c == ')') parenLevel--;
             else if (c == '.' && parenLevel == 0) return i;
@@ -140,13 +144,13 @@ public class InvokeCommand extends AbstractCommand {
         return -1;
     }
 
-    // "Тихая" версия для определения начального объекта без вывода ошибок в консоль
+    // Quiet resolution: try to resolve object without emitting debug/errors.
     private Object getTargetObjectSilent(String objectString, ScriptEntry scriptEntry) {
         ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, scriptEntry.getContext());
         if (parsed != null && !(parsed instanceof ElementTag)) {
             return parsed;
         }
-        // Используем ReflectionHandler.getClassSilent
+        // Try class name quietly
         return ReflectionHandler.getClassSilent(objectString);
     }
 
@@ -154,7 +158,7 @@ public class InvokeCommand extends AbstractCommand {
         ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, scriptEntry.getContext());
         if (parsed != null && !(parsed instanceof ElementTag)) {
             if (parsed instanceof JavaObjectTag) {
-                return ((JavaObjectTag) parsed).heldObject;
+                return ((JavaObjectTag) parsed).getJavaObject();
             }
             Object javaObject = parsed.getJavaObject();
             if (javaObject != null) {
@@ -172,20 +176,28 @@ public class InvokeCommand extends AbstractCommand {
         return null;
     }
 
-    // ... (методы convertArguments и createTypedArgument остаются без изменений) ...
     private List<ObjectTag> convertArguments(String argumentsString, ScriptEntry scriptEntry) {
         if (argumentsString == null || argumentsString.trim().isEmpty()) {
             return new ArrayList<>();
         }
+        // Use ListTag parser to properly parse Denizen nested tags, escaping and lists.
         ListTag argList = ListTag.valueOf(argumentsString, scriptEntry.getContext());
         List<ObjectTag> convertedArgs = new ArrayList<>();
         for (ObjectTag arg : argList.objectForms) {
-            ObjectTag processedArg = arg;
-            if (processedArg instanceof JavaObjectTag) {
-                Object heldObject = ((JavaObjectTag) processedArg).getJavaObject();
-                processedArg = CoreUtilities.objectToTagForm(heldObject, scriptEntry.getContext(), false, false, true);
+            // IMPORTANT: Do NOT re-wrap or convert JavaObjectTag back into ElementTag.
+            // If arg is JavaObjectTag — keep it as-is (it carries the real Java object).
+            if (arg instanceof JavaObjectTag) {
+                convertedArgs.add(arg);
+                continue;
             }
-            String argStr = processedArg.toString();
+            // If arg.getJavaObject() is present (some custom object that exposes java object), keep original ObjectTag.
+            if (arg.getJavaObject() != null && !(arg instanceof ElementTag)) {
+                convertedArgs.add(arg);
+                continue;
+            }
+
+            // If argument is a typed string like int#5 or java.lang.String#hello — try to create a typed argument
+            String argStr = arg.toString();
             int atIndex = argStr.indexOf('#');
             if (atIndex > 0) {
                 String typeName = argStr.substring(0, atIndex);
@@ -196,7 +208,9 @@ public class InvokeCommand extends AbstractCommand {
                     continue;
                 }
             }
-            convertedArgs.add(processedArg);
+
+            // Default: keep parsed ObjectTag (likely ElementTag or other Denizen object)
+            convertedArgs.add(arg);
         }
         return convertedArgs;
     }
@@ -213,8 +227,10 @@ public class InvokeCommand extends AbstractCommand {
                 case "short": return new ElementTag(Short.parseShort(value));
                 case "string": case "java.lang.string": return new ElementTag(value);
                 default:
-                    if (ReflectionHandler.getClass(typeName, scriptEntry.getContext()) != null) {
-                        return new ElementTag(value);
+                    // If the typeName resolves to a Class, return a JavaObjectTag wrapping that Class object.
+                    Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
+                    if (clazz != null) {
+                        return new JavaObjectTag(clazz);
                     }
                     break;
             }
