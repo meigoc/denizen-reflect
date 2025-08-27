@@ -8,56 +8,18 @@ import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
-import com.denizenscript.denizencore.utilities.CoreUtilities;
+import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.object.JavaObjectTag;
 import meigo.denizen.reflect.util.ReflectionHandler;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class InvokeCommand extends AbstractCommand {
 
-    // <--[command]
-    // @Name invoke
-    // @Syntax invoke [<object>.<method>([<args>]).<method2>...]
-    // @Required 1
-    // @Maximum 1
-    // @Short Invokes a Java method or a chain of methods on an object or static class.
-    // @Group reflection
-    //
-    // @Description
-    // This command invokes a Java method on an object or static class reference.
-    // It now supports chaining methods together. The result of the first method call becomes the object for the second, and so on.
-    // The final method in the chain is executed, but its return value is discarded. All intermediate methods in the chain MUST return an object.
-    //
-    // The syntax is: <object>.<method>([args]).<method2>([args2])...
-    //
-    // The object can be:
-    // - Any Denizen ObjectTag (like <player>, <entity>, etc.) - will be converted to its underlying Java object.
-    // - A JavaObjectTag (from the 'import' command or as a definition).
-    //
-    // Arguments are separated by pipes (|) and can be any Denizen ObjectTag, including definitions and JavaObjectTags.
-    // Arguments can also be typed using a hash (#), for example: int#42, boolean#true, String#hello.
-    //
-    // @Tags
-    // None
-    //
-    // @Usage
-    // Use to call a simple method on a player object.
-    // - invoke "<player>.setHealth(10.0)"
-    //
-    // @Usage
-    // Use to call a chain of methods to get the plugin manager and disable a plugin.
-    // - invoke "org.bukkit.Bukkit.getPluginManager().disablePlugin(<plugin[MyPlugin]>)"
-    //
-    // @Usage
-    // Use to get a player's inventory and clear it.
-    // - invoke "<player>.getInventory().clear()"
-    // -->
     public InvokeCommand() {
         setName("invoke");
         setSyntax("invoke [<object>.<method>([<args>]).<method2>...]");
@@ -90,53 +52,49 @@ public class InvokeCommand extends AbstractCommand {
         }
         String fullString = invokeString.asString();
 
+        // --- ИЗМЕНЕНИЕ: Полностью переписанный парсер для корректной работы ---
         String objectString = null;
         int chainStartIndex = -1;
 
-        // Итеративно ищем самый длинный валидный начальный объект
-        int nextDot = -1;
-        while ((nextDot = fullString.indexOf('.', nextDot + 1)) != -1) {
-            String potentialObject = fullString.substring(0, nextDot);
-            // Используем "тихую" проверку, чтобы не спамить в консоль
-            if (getTargetObjectSilent(potentialObject, scriptEntry) != null) {
+        int searchEnd = fullString.indexOf('.');
+        while (searchEnd != -1) {
+            String potentialObject = fullString.substring(0, searchEnd);
+            if (getTargetObject(potentialObject, scriptEntry, true) != null) {
                 objectString = potentialObject;
-                chainStartIndex = nextDot;
+                chainStartIndex = searchEnd;
             }
+            searchEnd = fullString.indexOf('.', searchEnd + 1);
         }
 
-        // Если цикл не нашел класс (например, для <player>.getInventory()),
-        // используем старый простой метод поиска первой точки.
         if (objectString == null) {
-            chainStartIndex = findFirstDot(fullString);
+            chainStartIndex = fullString.indexOf('.');
             if (chainStartIndex == -1) {
-                // Если это просто поле без методов, например "java.lang.System.out"
-                objectString = fullString;
-            } else {
-                objectString = fullString.substring(0, chainStartIndex);
+                // Возможно, это один объект без вызова, например <player>
+                Object singleObject = getTargetObject(fullString, scriptEntry, false);
+                if (singleObject != null) {
+                    // Команда invoke без вызова метода/поля ничего не делает
+                    return;
+                }
+                Debug.echoError(scriptEntry, "Invalid invoke syntax: missing method or field call. Full string: " + fullString);
+                return;
             }
+            objectString = fullString.substring(0, chainStartIndex);
         }
 
-        Object currentObject = getTargetObject(objectString, scriptEntry);
+        Object currentObject = getTargetObject(objectString, scriptEntry, false);
         if (currentObject == null) {
             Debug.echoError(scriptEntry, "Could not resolve initial target object: " + objectString);
             return;
         }
 
-        if (chainStartIndex == -1) { // Это был доступ к полю без методов
-            return; // Ничего не делаем, просто получаем доступ к полю
-        }
-
         String chainString = fullString.substring(chainStartIndex);
         Matcher matcher = CHAIN_PART_PATTERN.matcher(chainString);
-        int lastMatchEnd = 0;
 
         while (matcher.find()) {
-            lastMatchEnd = matcher.end();
             String memberName = matcher.group(1);
             String argsString = matcher.group(2); // null, если это поле
 
-            List<ObjectTag> convertedArgs = convertArguments(argsString, scriptEntry);
-            boolean isLastPart = (lastMatchEnd == chainString.length());
+            List<ObjectTag> convertedArgs = (argsString != null) ? ListTag.valueOf(argsString, scriptEntry.getContext()).objectForms : new ArrayList<>();
             Object result;
 
             if (currentObject instanceof Class) {
@@ -150,113 +108,45 @@ public class InvokeCommand extends AbstractCommand {
                         : ReflectionHandler.invokeMethod(currentObject, memberName, convertedArgs, scriptEntry.getContext());
             }
 
-            if (isLastPart) {
+            // Проверяем, есть ли еще части в цепочке
+            int nextPartStart = matcher.end();
+            if (nextPartStart >= chainString.length()) {
+                // Это была последняя часть, завершаем команду
                 return;
             }
+
             if (result == null) {
                 Debug.echoError(scriptEntry, "Method/field '" + memberName + "' on object '" + currentObject.toString() + "' returned null, breaking the method chain.");
                 return;
             }
             currentObject = result;
         }
-
-        if (lastMatchEnd != chainString.length()) {
-            Debug.echoError(scriptEntry, "Invalid invoke syntax. Could not parse the part after: '" + chainString.substring(0, lastMatchEnd) + "'");
-        }
     }
 
-    private int findFirstDot(String str) {
-        int parenLevel = 0;
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (c == '(') parenLevel++;
-            else if (c == ')') parenLevel--;
-            else if (c == '.' && parenLevel == 0) return i;
+    private Object getTargetObject(String objectString, ScriptEntry scriptEntry, boolean silent) {
+        TagContext context = scriptEntry.getContext();
+        if (silent) {
+            context = context.clone();
         }
-        return -1;
-    }
 
-    // "Тихая" версия для определения начального объекта без вывода ошибок в консоль
-    private Object getTargetObjectSilent(String objectString, ScriptEntry scriptEntry) {
-        ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, scriptEntry.getContext());
-        if (parsed != null && !(parsed instanceof ElementTag)) {
-            return parsed;
-        }
-        // Используем ReflectionHandler.getClassSilent
-        return ReflectionHandler.getClassSilent(objectString);
-    }
-
-    private Object getTargetObject(String objectString, ScriptEntry scriptEntry) {
-        ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, scriptEntry.getContext());
+        // 1. Пытаемся распознать как Denizen-объект (например, <player>, <[my_def]>)
+        ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, context);
+        // Убеждаемся, что это не просто строка, которая случайно совпала
         if (parsed != null && !(parsed instanceof ElementTag)) {
             if (parsed instanceof JavaObjectTag) {
                 return ((JavaObjectTag) parsed).heldObject;
             }
-            Object javaObject = parsed.getJavaObject();
-            if (javaObject != null) {
-                return javaObject;
-            }
-            return parsed;
+            return parsed.getJavaObject();
         }
-        Class<?> clazz = ReflectionHandler.getClass(objectString, scriptEntry.getContext());
+
+        // 2. Если не получилось, пытаемся распознать как имя класса
+        Class<?> clazz = silent
+                ? ReflectionHandler.getClassSilent(objectString)
+                : ReflectionHandler.getClass(objectString, context);
         if (clazz != null) {
             return clazz;
         }
-        if (parsed != null) {
-            return parsed.getJavaObject();
-        }
-        return null;
-    }
 
-    // ... (методы convertArguments и createTypedArgument остаются без изменений) ...
-    private List<ObjectTag> convertArguments(String argumentsString, ScriptEntry scriptEntry) {
-        if (argumentsString == null || argumentsString.trim().isEmpty()) {
-            return new ArrayList<>();
-        }
-        ListTag argList = ListTag.valueOf(argumentsString, scriptEntry.getContext());
-        List<ObjectTag> convertedArgs = new ArrayList<>();
-        for (ObjectTag arg : argList.objectForms) {
-            ObjectTag processedArg = arg;
-            if (processedArg instanceof JavaObjectTag) {
-                Object heldObject = ((JavaObjectTag) processedArg).getJavaObject();
-                processedArg = CoreUtilities.objectToTagForm(heldObject, scriptEntry.getContext(), false, false, true);
-            }
-            String argStr = processedArg.toString();
-            int atIndex = argStr.indexOf('#');
-            if (atIndex > 0) {
-                String typeName = argStr.substring(0, atIndex);
-                String value = argStr.substring(atIndex + 1);
-                ObjectTag typedArg = createTypedArgument(typeName, value, scriptEntry);
-                if (typedArg != null) {
-                    convertedArgs.add(typedArg);
-                    continue;
-                }
-            }
-            convertedArgs.add(processedArg);
-        }
-        return convertedArgs;
-    }
-
-    private ObjectTag createTypedArgument(String typeName, String value, ScriptEntry scriptEntry) {
-        try {
-            switch (typeName.toLowerCase(Locale.ENGLISH)) {
-                case "int": case "integer": return new ElementTag(Integer.parseInt(value));
-                case "long": return new ElementTag(Long.parseLong(value));
-                case "float": return new ElementTag(Float.parseFloat(value));
-                case "double": return new ElementTag(Double.parseDouble(value));
-                case "boolean": return new ElementTag(Boolean.parseBoolean(value));
-                case "byte": return new ElementTag(Byte.parseByte(value));
-                case "short": return new ElementTag(Short.parseShort(value));
-                case "string": case "java.lang.string": return new ElementTag(value);
-                default:
-                    if (ReflectionHandler.getClass(typeName, scriptEntry.getContext()) != null) {
-                        return new ElementTag(value);
-                    }
-                    break;
-            }
-        } catch (Exception e) {
-            Debug.echoError(scriptEntry, "Failed to convert argument '" + value + "' to type '" + typeName + "': " + e.getMessage());
-        }
         return null;
     }
 }

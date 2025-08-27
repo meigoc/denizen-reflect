@@ -67,26 +67,27 @@ public class ReflectionHandler {
         try {
             Class<?> clazz = Class.forName(className);
             if (!isClassAllowed(clazz)) {
-                Debug.echoError(context, "Access to class '" + className + "' is denied by the DenizenReflect security configuration.");
+                if (context == null || context.showErrors()) {
+                    Debug.echoError("Access to class '" + className + "' is denied by the DenizenReflect security configuration.");
+                }
                 return null;
             }
             return clazz;
         } catch (ClassNotFoundException e) {
-            Debug.echoError(context, "Could not find class: " + className);
+            if (context == null || context.showErrors()) {
+                Debug.echoError("Could not find class: " + className);
+            }
             return null;
         }
     }
 
     private static int calculateConversionCost(Class<?> javaParam, ObjectTag denizenParam) {
-        // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-        // Если нам передали JavaObjectTag, "распаковываем" его и рекурсивно вызываем
-        // оценку для содержимого. Это делает подбор методов более точным.
         if (denizenParam instanceof JavaObjectTag) {
             Object heldObject = ((JavaObjectTag) denizenParam).getJavaObject();
-            // CoreUtilities.noDebugContext используется, чтобы избежать спама в консоль при внутренней конвертации
-            return calculateConversionCost(javaParam, CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext));
+            if (heldObject != null) {
+                return calculateConversionCost(javaParam, CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext));
+            }
         }
-        // --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
         if (denizenParam == null) {
             return javaParam.isPrimitive() ? CONVERSION_IMPOSSIBLE : CONVERSION_NULL;
@@ -101,7 +102,7 @@ public class ReflectionHandler {
                 Enum.valueOf((Class<Enum>) javaParam, denizenParam.toString().toUpperCase(Locale.ENGLISH));
                 return CONVERSION_PRIMITIVE;
             } catch (IllegalArgumentException e) {
-                // Not a valid enum constant for this type
+                // Not a valid enum constant
             }
         }
 
@@ -227,6 +228,7 @@ public class ReflectionHandler {
             }
             if (bestMatch != null) {
                 Object[] javaParams = convertParams(bestMatch.getParameterTypes(), params);
+                bestMatch.setAccessible(true);
                 return bestMatch.newInstance(javaParams);
             } else {
                 Debug.echoError(context, "Could not find a matching constructor for class '" + className + "' with the provided parameters.");
@@ -240,6 +242,10 @@ public class ReflectionHandler {
     }
 
     public static Object invokeMethod(Object instance, String methodName, List<ObjectTag> params, TagContext context) {
+        if (instance == null) {
+            Debug.echoError(context, "Cannot invoke method on a null object.");
+            return null;
+        }
         if (!isClassAllowed(instance.getClass())) {
             Debug.echoError(context, "Access to class '" + instance.getClass().getName() + "' is denied by the DenizenReflect security configuration.");
             return null;
@@ -294,6 +300,7 @@ public class ReflectionHandler {
 
             if (bestMatch != null) {
                 Object[] javaParams = convertParams(bestMatch.getParameterTypes(), params);
+                bestMatch.setAccessible(true);
                 return bestMatch.invoke(instance, javaParams);
             } else {
                 String paramTypesStr = params.stream()
@@ -332,6 +339,7 @@ public class ReflectionHandler {
                 Debug.echoError(context, "Static/instance mismatch for field '" + fieldName + "'.");
                 return null;
             }
+            field.setAccessible(true);
             return field.get(instance);
         } catch (NoSuchFieldException e) {
             Debug.echoError(context, "Could not find a public field named '" + fieldName + "' in class '" + clazz.getName() + "'.");
@@ -369,6 +377,7 @@ public class ReflectionHandler {
                 Debug.echoError(context, "Cannot modify final field '" + fieldName + "'.");
                 return;
             }
+            field.setAccessible(true);
             Object javaValue = convertDenizenToJava(field.getType(), value);
             field.set(instance, javaValue);
         } catch (NoSuchFieldException e) {
@@ -382,13 +391,9 @@ public class ReflectionHandler {
     public static Class<?> getClassSilent(String className) {
         try {
             Class<?> clazz = Class.forName(className);
-            if (!isClassAllowed(clazz)) {
-                return null;
-            }
-            return clazz;
+            return isClassAllowed(clazz) ? clazz : null;
         } catch (ClassNotFoundException e) {
             return null;
         }
     }
-
 }

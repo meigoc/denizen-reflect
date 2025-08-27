@@ -19,14 +19,14 @@ public class ImportCommand extends AbstractCommand {
 
     public ImportCommand() {
         setName("import");
-        setSyntax("import [<class_name>] [constructor:<param>|...] [as:<definition_name>]");
+        setSyntax("import [<class_name>] [constructor:[<param>|...]] [as:<definition_name>]");
         setRequiredArguments(1, 3);
         isProcedural = false;
     }
 
     // <--[command]
     // @Name import
-    // @Syntax import [<class_name>] [constructor:<param>|...] [as:<definition_name>]
+    // @Syntax import [<class_name>] [constructor:[<param>|...]] [as:<definition_name>]
     // @Required 1
     // @Maximum 3
     // @Short Creates a new Java object instance or gets a static class reference.
@@ -39,11 +39,12 @@ public class ImportCommand extends AbstractCommand {
     // The first argument is required and must be the fully qualified name of the class (e.g., "java.util.ArrayList").
     // Access to classes is restricted by the 'allowed-packages' list in the config.yml for security.
     //
-    // The 'constructor' argument is optional. If provided, the command will attempt to create a new instance
-    // of the class by finding a constructor that matches the provided parameters. Parameters can be any ObjectTag,
-    // including typed arguments like 'int#42'.
-    // If omitted, the command will attempt to use the default no-argument constructor. If no constructor argument is given
-    // at all, the command returns a static reference to the class itself, which can be used for static method/field access.
+    // The 'constructor' argument is optional. If you provide it (even with no value, like `constructor:`),
+    // the command will try to create a new instance of the class by finding a constructor that matches the provided parameters.
+    // Parameters are a ListTag of objects to pass to the constructor.
+    //
+    // If you DO NOT provide the 'constructor' argument AT ALL, the command returns a static reference to the class itself,
+    // which can be used for static method/field access.
     //
     // The 'as' argument is optional and specifies the name of the definition to save the created JavaObjectTag into.
     //
@@ -51,8 +52,8 @@ public class ImportCommand extends AbstractCommand {
     // <entry[saveName].created_object> returns the created JavaObjectTag.
     //
     // @Usage
-    // Use to create a new ArrayList and save it to the definition 'my_list'.
-    // - import java.util.ArrayList as:my_list
+    // Use to create a new ArrayList using its no-arg constructor and save it to 'my_list'.
+    // - import java.util.ArrayList constructor as:my_list
     //
     // @Usage
     // Use to get a static reference to the 'java.lang.System' class.
@@ -65,12 +66,12 @@ public class ImportCommand extends AbstractCommand {
 
     @Override
     public void parseArgs(ScriptEntry scriptEntry) throws InvalidArgumentsException {
+        // --- ИЗМЕНЕНИЕ: Возвращен самый простой и надежный парсер, который не вызывает ошибок ---
         for (Argument arg : scriptEntry) {
             if (!scriptEntry.hasObject("class_name")
                     && !arg.matchesPrefix("constructor", "as")) {
                 scriptEntry.addObject("class_name", arg.getRawElement());
             }
-            // Other arguments are handled in execute
         }
         if (!scriptEntry.hasObject("class_name")) {
             throw new InvalidArgumentsException("Missing class name argument!");
@@ -80,18 +81,21 @@ public class ImportCommand extends AbstractCommand {
     @Override
     public void execute(ScriptEntry scriptEntry) {
         ElementTag className = scriptEntry.getElement("class_name");
-        ListTag constructorArgs = scriptEntry.argForPrefix("constructor", ListTag.class, true);
+        ListTag constructorArgsList = scriptEntry.argForPrefix("constructor", ListTag.class, true);
         ElementTag defName = scriptEntry.argForPrefixAsElement("as", null);
+
+        // Эта проверка - ключ к решению. Она надежно определяет, был ли указан аргумент 'constructor'.
+        boolean constructorPresent = scriptEntry.argForPrefix("constructor") != null;
 
         if (scriptEntry.dbCallShouldDebug()) {
             Debug.report(scriptEntry, getName(),
                     className.debuggable(),
-                    (constructorArgs != null ? constructorArgs.debuggable() : ""),
+                    constructorPresent ? (constructorArgsList != null ? constructorArgsList.debuggable() : "constructor (no args)") : "",
                     (defName != null ? defName.debuggable() : ""));
         }
 
-        // If 'constructor' argument is not present at all, we want a static class reference.
-        if (constructorArgs == null && scriptEntry.argForPrefix("constructor") == null) {
+        if (!constructorPresent) {
+            // Случай 1: 'constructor' отсутствует - создаем статическую ссылку
             Class<?> staticClass = ReflectionHandler.getClass(className.asString(), scriptEntry.getContext());
             if (staticClass != null) {
                 JavaObjectTag classObject = new JavaObjectTag(staticClass);
@@ -103,8 +107,8 @@ public class ImportCommand extends AbstractCommand {
             return;
         }
 
-        // If 'constructor' argument is present (even if empty), create an instance.
-        List<ObjectTag> params = convertConstructorArgs(constructorArgs, scriptEntry);
+        // Случай 2: 'constructor' есть - создаем экземпляр
+        List<ObjectTag> params = convertConstructorArgs(constructorArgsList, scriptEntry);
         Object newInstance = ReflectionHandler.construct(className.asString(), params, scriptEntry.getContext());
 
         if (newInstance != null) {
@@ -121,8 +125,7 @@ public class ImportCommand extends AbstractCommand {
             return new ArrayList<>();
         }
         List<ObjectTag> convertedArgs = new ArrayList<>();
-        for (ObjectTag arg : args.objectForms) {
-            String argStr = arg.toString();
+        for (String argStr : args) {
             int atIndex = argStr.indexOf('#');
             if (atIndex > 0) {
                 String typeName = argStr.substring(0, atIndex);
@@ -133,7 +136,7 @@ public class ImportCommand extends AbstractCommand {
                     continue;
                 }
             }
-            convertedArgs.add(arg);
+            convertedArgs.add(new ElementTag(argStr));
         }
         return convertedArgs;
     }
@@ -141,8 +144,7 @@ public class ImportCommand extends AbstractCommand {
     private ObjectTag createTypedArgument(String typeName, String value, ScriptEntry scriptEntry) {
         try {
             switch (typeName.toLowerCase(Locale.ENGLISH)) {
-                case "int":
-                case "integer":
+                case "int": case "integer":
                     return new ElementTag(Integer.parseInt(value));
                 case "long":
                     return new ElementTag(Long.parseLong(value));
@@ -156,12 +158,10 @@ public class ImportCommand extends AbstractCommand {
                     return new ElementTag(Byte.parseByte(value));
                 case "short":
                     return new ElementTag(Short.parseShort(value));
-                case "string":
-                case "java.lang.string":
+                case "string": case "java.lang.string":
                     return new ElementTag(value);
                 default:
-                    Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
-                    if (clazz != null) {
+                    if (ReflectionHandler.getClass(typeName, scriptEntry.getContext()) != null) {
                         return new ElementTag(value);
                     }
                     break;
