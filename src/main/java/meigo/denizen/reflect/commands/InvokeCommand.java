@@ -52,97 +52,74 @@ public class InvokeCommand extends AbstractCommand {
         }
         String fullString = invokeString.asString();
 
-        // --- ИЗМЕНЕНИЕ: Полностью переписанный парсер для корректной работы ---
-        String objectString = null;
-        int chainStartIndex = -1;
+        String objectString;
+        String chainString;
 
-        int searchEnd = fullString.indexOf('.');
-        while (searchEnd != -1) {
-            String potentialObject = fullString.substring(0, searchEnd);
-            if (getTargetObject(potentialObject, scriptEntry, true) != null) {
-                objectString = potentialObject;
-                chainStartIndex = searchEnd;
-            }
-            searchEnd = fullString.indexOf('.', searchEnd + 1);
+        int firstDot = fullString.indexOf('.');
+        if (firstDot == -1) {
+            Debug.echoError(scriptEntry, "Invalid invoke syntax: missing method or field call. Full string: " + fullString);
+            return;
         }
+        objectString = fullString.substring(0, firstDot);
+        chainString = fullString.substring(firstDot);
 
-        if (objectString == null) {
-            chainStartIndex = fullString.indexOf('.');
-            if (chainStartIndex == -1) {
-                // Возможно, это один объект без вызова, например <player>
-                Object singleObject = getTargetObject(fullString, scriptEntry, false);
-                if (singleObject != null) {
-                    // Команда invoke без вызова метода/поля ничего не делает
-                    return;
-                }
-                Debug.echoError(scriptEntry, "Invalid invoke syntax: missing method or field call. Full string: " + fullString);
-                return;
-            }
-            objectString = fullString.substring(0, chainStartIndex);
-        }
-
-        Object currentObject = getTargetObject(objectString, scriptEntry, false);
+        Object currentObject = getTargetObject(objectString, scriptEntry);
         if (currentObject == null) {
             Debug.echoError(scriptEntry, "Could not resolve initial target object: " + objectString);
             return;
         }
 
-        String chainString = fullString.substring(chainStartIndex);
         Matcher matcher = CHAIN_PART_PATTERN.matcher(chainString);
 
         while (matcher.find()) {
+            if (currentObject == null) {
+                Debug.echoError(scriptEntry, "Cannot continue method chain: previous call returned null.");
+                return;
+            }
             String memberName = matcher.group(1);
-            String argsString = matcher.group(2); // null, если это поле
+            String argsString = matcher.group(2);
 
-            List<ObjectTag> convertedArgs = (argsString != null) ? ListTag.valueOf(argsString, scriptEntry.getContext()).objectForms : new ArrayList<>();
             Object result;
 
-            if (currentObject instanceof Class) {
-                result = (argsString == null)
-                        ? ReflectionHandler.getStaticField((Class<?>) currentObject, memberName, scriptEntry.getContext())
-                        : ReflectionHandler.invokeStaticMethod((Class<?>) currentObject, memberName, convertedArgs, scriptEntry.getContext());
-            }
-            else {
-                result = (argsString == null)
-                        ? ReflectionHandler.getField(currentObject, memberName, scriptEntry.getContext())
-                        : ReflectionHandler.invokeMethod(currentObject, memberName, convertedArgs, scriptEntry.getContext());
+            if (argsString != null) {
+                List<ObjectTag> convertedArgs = ListTag.valueOf(argsString, scriptEntry.getContext()).objectForms;
+                result = invokeMember(currentObject, memberName, convertedArgs, scriptEntry.getContext());
+            } else {
+                result = invokeMember(currentObject, memberName, null, scriptEntry.getContext());
             }
 
-            // Проверяем, есть ли еще части в цепочке
             int nextPartStart = matcher.end();
             if (nextPartStart >= chainString.length()) {
-                // Это была последняя часть, завершаем команду
                 return;
             }
 
-            if (result == null) {
-                Debug.echoError(scriptEntry, "Method/field '" + memberName + "' on object '" + currentObject.toString() + "' returned null, breaking the method chain.");
-                return;
-            }
             currentObject = result;
         }
     }
 
-    private Object getTargetObject(String objectString, ScriptEntry scriptEntry, boolean silent) {
+    private Object invokeMember(Object target, String memberName, List<ObjectTag> args, TagContext context) {
+        boolean isMethodCall = args != null;
+        if (target instanceof Class) {
+            return isMethodCall
+                    ? ReflectionHandler.invokeStaticMethod((Class<?>) target, memberName, args, context)
+                    : ReflectionHandler.getStaticField((Class<?>) target, memberName, context);
+        }
+        else {
+            return isMethodCall
+                    ? ReflectionHandler.invokeMethod(target, memberName, args, context)
+                    : ReflectionHandler.getField(target, memberName, context);
+        }
+    }
+
+    private Object getTargetObject(String objectString, ScriptEntry scriptEntry) {
         TagContext context = scriptEntry.getContext();
-        if (silent) {
-            context = context.clone();
-        }
-
-        // 1. Пытаемся распознать как Denizen-объект (например, <player>, <[my_def]>)
         ObjectTag parsed = ObjectFetcher.pickObjectFor(objectString, context);
-        // Убеждаемся, что это не просто строка, которая случайно совпала
-        if (parsed != null && !(parsed instanceof ElementTag)) {
-            if (parsed instanceof JavaObjectTag) {
-                return ((JavaObjectTag) parsed).heldObject;
-            }
-            return parsed.getJavaObject();
+
+        if (parsed != null) {
+            return (parsed instanceof JavaObjectTag) ? ((JavaObjectTag) parsed).getJavaObject() : parsed.getJavaObject();
         }
 
-        // 2. Если не получилось, пытаемся распознать как имя класса
-        Class<?> clazz = silent
-                ? ReflectionHandler.getClassSilent(objectString)
-                : ReflectionHandler.getClass(objectString, context);
+        Class<?> clazz = ReflectionHandler.getClass(objectString, context);
         if (clazz != null) {
             return clazz;
         }
