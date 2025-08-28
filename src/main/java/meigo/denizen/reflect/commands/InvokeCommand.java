@@ -81,10 +81,22 @@ public class InvokeCommand extends AbstractCommand {
 
             Object result;
 
-            if (argsString != null) {
-                List<ObjectTag> convertedArgs = ListTag.valueOf(argsString, scriptEntry.getContext()).objectForms;
+            if (argsString != null) { // Это вызов метода
+                List<ObjectTag> convertedArgs;
+                // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+                // Если аргумент - это явно ListTag (начинается с li@), то мы рассматриваем весь ListTag
+                // как ОДИН аргумент, а не распаковываем его содержимое.
+                if (argsString.startsWith("li@")) {
+                    convertedArgs = new ArrayList<>();
+                    convertedArgs.add(ListTag.valueOf(argsString, scriptEntry.getContext()));
+                }
+                else {
+                    // Для всех остальных случаев (одиночные теги, списки через |) используем стандартное поведение.
+                    convertedArgs = ListTag.valueOf(argsString, scriptEntry.getContext()).objectForms;
+                }
+                // --- КОНЕЦ ИЗМЕНЕНИЯ ---
                 result = invokeMember(currentObject, memberName, convertedArgs, scriptEntry.getContext());
-            } else {
+            } else { // Это доступ к полю
                 result = invokeMember(currentObject, memberName, null, scriptEntry.getContext());
             }
 
