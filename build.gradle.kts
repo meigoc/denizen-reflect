@@ -44,6 +44,7 @@ repositories {
 dependencies {
     implementation("io.papermc.paper:paper-api:${project.properties["craftbukkit.version"]}")
     implementation("com.denizenscript:denizen:${project.properties["denizen.version"]}")
+    implementation("com.github.javaparser:javaparser-core:3.25.10")
 }
 
 fun buildNumber(): String = project.findProperty("BUILD_NUMBER") as? String ?: "UNKNOWN"

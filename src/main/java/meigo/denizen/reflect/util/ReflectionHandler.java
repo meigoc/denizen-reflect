@@ -10,6 +10,7 @@ import meigo.denizen.reflect.DenizenReflect;
 import meigo.denizen.reflect.object.JavaObjectTag;
 
 import java.lang.reflect.*;
+import java.net.URI;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -81,10 +82,23 @@ public class ReflectionHandler {
         }
     }
 
+    /**
+     * Обновлённая логика оценки "стоимости" приведения аргумента Denizen (ObjectTag) к требуемому Java типу.
+     * Учитывает:
+     * - JavaObjectTag (unwrap и прямой match)
+     * - ElementTag -> примитивы, String, URI
+     * - null для примитивов
+     */
     private static int calculateConversionCost(Class<?> javaParam, ObjectTag denizenParam) {
+        // Если это наша обёртка JavaObjectTag, сначала распакуем хранимый объект
         if (denizenParam instanceof JavaObjectTag) {
             Object heldObject = ((JavaObjectTag) denizenParam).getJavaObject();
             if (heldObject != null) {
+                // Прямое соответствие типа
+                if (javaParam.isInstance(heldObject)) {
+                    return CONVERSION_DIRECT_MATCH;
+                }
+                // Попробуем оценить по tag-форме распакованного объекта (как раньше делалось)
                 return calculateConversionCost(javaParam, CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext));
             }
         }
@@ -92,6 +106,7 @@ public class ReflectionHandler {
         if (denizenParam == null) {
             return javaParam.isPrimitive() ? CONVERSION_IMPOSSIBLE : CONVERSION_NULL;
         }
+
         Object javaObject = denizenParam.getJavaObject();
         if (javaObject != null && javaParam.isInstance(javaObject)) {
             return CONVERSION_DIRECT_MATCH;
@@ -107,6 +122,7 @@ public class ReflectionHandler {
         }
 
         if (denizenParam instanceof ElementTag element) {
+            // Примитивные соответствия
             if ((javaParam == int.class || javaParam == Integer.class) && element.isInt()) return CONVERSION_PRIMITIVE;
             if ((javaParam == double.class || javaParam == Double.class) && element.isDouble()) return CONVERSION_PRIMITIVE;
             if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return CONVERSION_PRIMITIVE;
@@ -114,9 +130,21 @@ public class ReflectionHandler {
             if ((javaParam == boolean.class || javaParam == Boolean.class) && element.isBoolean()) return CONVERSION_PRIMITIVE;
             if ((javaParam == short.class || javaParam == Short.class) && element.isInt()) return CONVERSION_PRIMITIVE + 2;
             if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt()) return CONVERSION_PRIMITIVE + 3;
+
+            // Widening (числовые расширения)
             if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return CONVERSION_WIDENING;
             if ((javaParam == float.class || javaParam == Float.class) && element.isInt()) return CONVERSION_WIDENING + 1;
             if ((javaParam == double.class || javaParam == Double.class) && (element.isInt() || element.isFloat())) return CONVERSION_WIDENING + 2;
+
+            // Поддержка URI из строки
+            if (javaParam == URI.class) {
+                try {
+                    // пробуем распарсить — если получилось, дешёвая конверсия
+                    URI.create(element.asString());
+                    return CONVERSION_PRIMITIVE;
+                } catch (Exception ignored) {
+                }
+            }
         }
 
         if (javaParam == String.class) {
@@ -137,47 +165,100 @@ public class ReflectionHandler {
         try {
             String enumName = element.asString().toUpperCase(Locale.ENGLISH);
             return Enum.valueOf((Class<Enum>) javaParam, enumName);
-        }
-        catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {
             return null;
         }
     }
 
+    /**
+     * Усовершенствованная конвертация ObjectTag -> Java объект ожидаемого типа.
+     * Учитывает:
+     * - JavaObjectTag.unwrap (при возможности возвращает held object)
+     * - ElementTag -> primitives, String, URI
+     * - fallback: denizenParam.toString() для String
+     */
     private static Object convertDenizenToJava(Class<?> javaParam, ObjectTag denizenParam) {
         if (denizenParam == null) return null;
 
-        Object javaObject = denizenParam.getJavaObject();
-        if (javaObject != null && javaParam.isInstance(javaObject)) return javaObject;
-
-        if (denizenParam instanceof ElementTag element) {
-            Object enumValue = tryConvertElementToEnum(javaParam, element);
-            if (enumValue != null) {
-                return enumValue;
-            }
-            if (javaParam == int.class || javaParam == Integer.class) return element.asInt();
-            if (javaParam == double.class || javaParam == Double.class) return element.asDouble();
-            if (javaParam == long.class || javaParam == Long.class) return element.asLong();
-            if (javaParam == float.class || javaParam == Float.class) return element.asFloat();
-            if (javaParam == boolean.class || javaParam == Boolean.class) return element.asBoolean();
-            if (javaParam == short.class || javaParam == Short.class) {
-                int value = element.asInt();
-                if (value < Short.MIN_VALUE || value > Short.MAX_VALUE) {
-                    throw new IllegalArgumentException("Value " + value + " out of range for short");
+        // 1) Если это JavaObjectTag — распакуем хранимый объект и попробуем напрямую
+        if (denizenParam instanceof JavaObjectTag) {
+            Object heldObject = ((JavaObjectTag) denizenParam).getJavaObject();
+            if (heldObject != null) {
+                // Если распакованный объект уже подходит по типу -> вернуть его
+                if (javaParam.isInstance(heldObject)) {
+                    return heldObject;
                 }
-                return (short) value;
-            }
-            if (javaParam == byte.class || javaParam == Byte.class) {
-                int value = element.asInt();
-                if (value < Byte.MIN_VALUE || value > Byte.MAX_VALUE) {
-                    throw new IllegalArgumentException("Value " + value + " out of range for byte");
+                // Если ожидается String — вернуть toString() распакованного объекта
+                if (javaParam == String.class) {
+                    return heldObject.toString();
                 }
-                return (byte) value;
+                // Если ожидается URI и распакованный объект — строка, попробовать распарсить
+                if (javaParam == URI.class && heldObject instanceof String) {
+                    try {
+                        return URI.create((String) heldObject);
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException("Value '" + heldObject + "' is not a valid URI");
+                    }
+                }
+                // Иначе попытаться конвертировать через tag-форму распакованного объекта
+                ObjectTag wrapped = CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext, false, false, true);
+                if (wrapped != null && wrapped != denizenParam) {
+                    Object conv = convertDenizenToJava(javaParam, wrapped);
+                    if (conv != null) return conv;
+                }
             }
         }
 
+        // 2) Проверим, есть ли у ObjectTag собственный java-объект и подходит ли он напрямую
+        Object javaObject = denizenParam.getJavaObject();
+        if (javaObject != null && javaParam.isInstance(javaObject)) {
+            return javaObject;
+        }
+
+        // 3) ElementTag -> примитивы / URI / String
+        if (denizenParam instanceof ElementTag element) {
+            // Enum
+            Object enumValue = tryConvertElementToEnum(javaParam, element);
+            if (enumValue != null) return enumValue;
+
+            if ((javaParam == int.class || javaParam == Integer.class) && element.isInt()) return element.asInt();
+            if ((javaParam == double.class || javaParam == Double.class) && element.isDouble()) return element.asDouble();
+            if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return element.asLong();
+            if ((javaParam == float.class || javaParam == Float.class) && element.isFloat()) return element.asFloat();
+            if ((javaParam == boolean.class || javaParam == Boolean.class) && element.isBoolean()) return element.asBoolean();
+            if ((javaParam == short.class || javaParam == Short.class) && element.isInt()) {
+                int v = element.asInt();
+                if (v < Short.MIN_VALUE || v > Short.MAX_VALUE) {
+                    throw new IllegalArgumentException("Value " + v + " out of range for short");
+                }
+                return (short) v;
+            }
+            if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt()) {
+                int v = element.asInt();
+                if (v < Byte.MIN_VALUE || v > Byte.MAX_VALUE) {
+                    throw new IllegalArgumentException("Value " + v + " out of range for byte");
+                }
+                return (byte) v;
+            }
+
+            // URI из строки
+            if (javaParam == URI.class) {
+                try {
+                    return URI.create(element.asString());
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Value '" + element.asString() + "' is not a valid URI");
+                }
+            }
+        }
+
+        // 4) Если ожидается String — вернуть что есть (prefer ElementTag.asString)
         if (javaParam == String.class) {
+            if (denizenParam instanceof ElementTag e) return e.asString();
+            if (javaObject != null) return javaObject.toString();
             return denizenParam.toString();
         }
+
+        // 5) Fallback — вернуть сам javaObject если есть (возможно null)
         return javaObject;
     }
 
@@ -255,7 +336,7 @@ public class ReflectionHandler {
 
     public static Object invokeStaticMethod(Class<?> clazz, String methodName, List<ObjectTag> params, TagContext context) {
         if (!isClassAllowed(clazz)) {
-            Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied by the DenizenReflect security configuration.");
+            Debug.echoError(context, "Access to class '" + clazz.getName() + "' is denied.");
             return null;
         }
         return invoke(clazz, null, methodName, params, context);
@@ -396,4 +477,5 @@ public class ReflectionHandler {
             return null;
         }
     }
+
 }
