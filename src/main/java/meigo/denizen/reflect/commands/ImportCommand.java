@@ -2,7 +2,6 @@ package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
 import com.denizenscript.denizencore.objects.Argument;
-import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.objects.core.ListTag;
@@ -10,17 +9,18 @@ import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.object.JavaObjectTag;
+import meigo.denizen.reflect.util.ArgumentParamParser;
 import meigo.denizen.reflect.util.ReflectionHandler;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.stream.Collectors;
 
 public class ImportCommand extends AbstractCommand {
 
     public ImportCommand() {
         setName("import");
-        setSyntax("import [<class_name>] [constructor:[<param>|...]] [as:<definition_name>]");
+        setSyntax("import [<class_name>] (constructor:[<param>|...]) (as:<definition_name>)");
         setRequiredArguments(1, 3);
         isProcedural = false;
     }
@@ -42,7 +42,8 @@ public class ImportCommand extends AbstractCommand {
     //
     // The 'constructor' argument is optional. If you provide it (even with no value, like `constructor:`),
     // the command will try to create a new instance of the class by finding a constructor that matches the provided parameters.
-    // Parameters are a ListTag of objects to pass to the constructor.
+    // Parameters are a ListTag of objects to pass to the constructor. You can explicitly type primitive parameters
+    // using the format "type#value", for example: "int#10", "double#3.14".
     //
     // If you DO NOT provide the 'constructor' argument AT ALL, the command returns a static reference to the class itself,
     // which can be used for static method/field access.
@@ -71,6 +72,7 @@ public class ImportCommand extends AbstractCommand {
                     && !arg.matchesPrefix("constructor", "as")) {
                 scriptEntry.addObject("class_name", arg.getRawElement());
             }
+            // All other arguments are handled in execute
         }
         if (!scriptEntry.hasObject("class_name")) {
             throw new InvalidArgumentsException("Missing class name argument!");
@@ -92,102 +94,34 @@ public class ImportCommand extends AbstractCommand {
                     (defName != null ? defName.debuggable() : ""));
         }
 
+        JavaObjectTag resultObject = null;
+
         if (!constructorPresent) {
             // Case 1: no constructor argument, return static reference to class
             Class<?> staticClass = ReflectionHandler.getClass(className.asString(), scriptEntry.getContext());
             if (staticClass != null) {
-                JavaObjectTag classObject = new JavaObjectTag(staticClass);
-                scriptEntry.addObject("created_object", classObject);
-                if (defName != null) {
-                    scriptEntry.getResidingQueue().addDefinition(defName.asString(), classObject);
-                }
+                resultObject = new JavaObjectTag(staticClass);
             }
-            return;
+        }
+        else {
+            // Case 2: constructor present, create new instance
+            List<ObjectTag> params = new ArrayList<>();
+            if (constructorArgsList != null) {
+                params = constructorArgsList.stream()
+                        .map(argStr -> ArgumentParamParser.parse(argStr, scriptEntry.getContext()))
+                        .collect(Collectors.toList());
+            }
+            Object newInstance = ReflectionHandler.construct(className.asString(), params, scriptEntry.getContext());
+            if (newInstance != null) {
+                resultObject = new JavaObjectTag(newInstance);
+            }
         }
 
-        // Case 2: constructor present, create new instance
-        List<ObjectTag> params = convertConstructorArgs(constructorArgsList, scriptEntry);
-        Object newInstance = ReflectionHandler.construct(className.asString(), params, scriptEntry.getContext());
-
-        if (newInstance != null) {
-            JavaObjectTag newObject = new JavaObjectTag(newInstance);
-            scriptEntry.addObject("created_object", newObject);
+        if (resultObject != null) {
+            scriptEntry.addObject("created_object", resultObject);
             if (defName != null) {
-                scriptEntry.getResidingQueue().addDefinition(defName.asString(), newObject);
+                scriptEntry.getResidingQueue().addDefinition(defName.asString(), resultObject);
             }
         }
-    }
-
-    private List<ObjectTag> convertConstructorArgs(ListTag args, ScriptEntry scriptEntry) {
-        if (args == null) {
-            return new ArrayList<>();
-        }
-        List<ObjectTag> convertedArgs = new ArrayList<>();
-        for (String argStr : args) {
-            int atIndex = argStr.indexOf('#');
-            if (atIndex > 0) {
-                String typeName = argStr.substring(0, atIndex);
-                String value = argStr.substring(atIndex + 1);
-                ObjectTag typedArg = createTypedArgument(typeName, value, scriptEntry);
-                if (typedArg != null) {
-                    convertedArgs.add(typedArg);
-                    continue;
-                }
-            }
-            // If no type or parsing failed, try to parse as a Denizen object
-            if (argStr.contains("@")) {
-                try {
-                    ObjectTag obj = ObjectFetcher.pickObjectFor(argStr, scriptEntry.getContext());
-                    if (obj != null) {
-                        convertedArgs.add(obj);
-                        continue;
-                    }
-                } catch (Exception ignored) {
-                    // fallback to plain text
-                }
-            }
-            convertedArgs.add(new ElementTag(argStr));
-        }
-        return convertedArgs;
-    }
-
-    private ObjectTag createTypedArgument(String typeName, String value, ScriptEntry scriptEntry) {
-        try {
-            switch (typeName.toLowerCase(Locale.ENGLISH)) {
-                case "int": case "integer":
-                    return new ElementTag(Integer.parseInt(value));
-                case "long":
-                    return new ElementTag(Long.parseLong(value));
-                case "float":
-                    return new ElementTag(Float.parseFloat(value));
-                case "double":
-                    return new ElementTag(Double.parseDouble(value));
-                case "boolean":
-                    return new ElementTag(Boolean.parseBoolean(value));
-                case "byte":
-                    return new ElementTag(Byte.parseByte(value));
-                case "short":
-                    return new ElementTag(Short.parseShort(value));
-                case "string": case "java.lang.string":
-                    return new ElementTag(value);
-                default:
-                    Class<?> clazz = ReflectionHandler.getClass(typeName, scriptEntry.getContext());
-                    if (clazz != null) {
-                        // Try to parse value as a Denizen object first
-                        try {
-                            ObjectTag obj = ObjectFetcher.pickObjectFor(value, scriptEntry.getContext());
-                            if (obj != null) {
-                                return obj;
-                            }
-                        } catch (Exception ignored) {
-                        }
-                        // Fallback to plain ElementTag
-                        return new ElementTag(value);
-                    }
-            }
-        } catch (Exception e) {
-            Debug.echoError(scriptEntry, "Failed to convert argument '" + value + "' to type '" + typeName + "': " + e.getMessage());
-        }
-        return null;
     }
 }

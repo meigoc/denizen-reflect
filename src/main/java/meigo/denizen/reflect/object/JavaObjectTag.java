@@ -7,13 +7,10 @@ import com.denizenscript.denizencore.objects.core.MapTag;
 import com.denizenscript.denizencore.tags.Attribute;
 import com.denizenscript.denizencore.tags.ObjectTagProcessor;
 import com.denizenscript.denizencore.tags.TagContext;
-import com.denizenscript.denizencore.tags.TagManager;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.denizenscript.denizencore.utilities.text.StringHolder;
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.expr.*;
-import com.github.javaparser.ast.visitor.GenericVisitorAdapter;
+import meigo.denizen.reflect.util.JavaExpressionParser;
 import meigo.denizen.reflect.util.ReflectionHandler;
 
 import java.util.*;
@@ -65,18 +62,16 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         long expiryThreshold = currentTime - TimeUnit.MINUTES.toMillis(EXPIRY_TIME_MINUTES);
         int cleanedCount = 0;
 
-        // --- ИЗМЕНЕНИЕ: Потокобезопасная очистка ---
         Iterator<Map.Entry<UUID, Long>> iterator = lastAccessTimes.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<UUID, Long> entry = iterator.next();
             if (entry.getValue() < expiryThreshold) {
                 UUID expiredUUID = entry.getKey();
-                iterator.remove(); // Атомарно удаляет из lastAccessTimes
-                persistedInstances.remove(expiredUUID); // Удаляем из основной карты
+                iterator.remove();
+                persistedInstances.remove(expiredUUID);
                 cleanedCount++;
             }
         }
-        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         if (cleanedCount > 0) {
             Debug.log("Cleaned up " + cleanedCount + " expired JavaObjectTag instances");
@@ -121,15 +116,12 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             string = string.substring("java@".length());
         }
         if (UUID_PATTERN.matcher(string).matches()) {
-            // --- ИЗМЕНЕНИЕ: Исправлена ошибка NoSuchMethodError ---
-            // Замена CoreUtilities.tryParseUUID на стандартный UUID.fromString
             UUID uuid;
             try {
                 uuid = UUID.fromString(string);
             } catch (IllegalArgumentException e) {
                 uuid = null;
             }
-            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if (uuid != null && persistedInstances.containsKey(uuid)) {
                 JavaObjectTag instance = persistedInstances.get(uuid);
                 instance.updateAccessTime();
@@ -150,7 +142,9 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     public static final ObjectTagProcessor<JavaObjectTag> tagProcessor = new ObjectTagProcessor<>();
 
     public static void register() {
-        tagProcessor.registerTag(ObjectTag.class, "invoke", (attribute, object) -> {
+        // A simple method invoker that takes "methodName(arg1|arg2|...)"
+        // Kept for backward compatibility or simple use cases.
+        tagProcessor.registerTag(ObjectTag.class, "invoke_simple", (attribute, object) -> {
             String param = attribute.getParam();
             String methodName;
             List<ObjectTag> params;
@@ -173,18 +167,18 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             return ReflectionHandler.wrapObject(result, attribute.context);
         });
 
-        // NEW: Add invoke[] tag with full InvokeCommand functionality
+        // Advanced invoker that parses a full Java expression.
         tagProcessor.registerTag(ObjectTag.class, "invoke", (attribute, object) -> {
             String invokeExpression = attribute.getParam();
             if (invokeExpression == null || invokeExpression.isEmpty()) {
                 Debug.echoError(attribute.context, "invoke[] tag requires a Java expression parameter.");
                 return null;
             }
-
             try {
-                // Create a JavaInvoker instance to handle the invocation
-                JavaInvoker invoker = new JavaInvoker(attribute.context);
-                Object result = invoker.executeInvoke(invokeExpression, object);
+                object.updateAccessTime();
+                JavaExpressionParser parser = new JavaExpressionParser(attribute.context);
+                // Pass the current object as the context for implicit 'this' calls
+                Object result = parser.execute(invokeExpression, object.getJavaObject());
                 return ReflectionHandler.wrapObject(result, attribute.context);
             } catch (Exception e) {
                 Debug.echoError(attribute.context, "Error in invoke[] tag: " + e.getMessage());
@@ -257,335 +251,4 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     @Override public void adjust(Mechanism mechanism) { tagProcessor.processMechanism(this, mechanism); }
     @Override public void applyProperty(Mechanism mechanism) { Debug.echoError("Cannot apply properties to a JavaObjectTag!"); }
     @Override public String toString() { return identify(); }
-
-    // ================================================================================= //
-    // ======================= JavaInvoker for invoke[] tag =========================== //
-    // ================================================================================= //
-
-    /**
-     * Internal class to handle Java invocation logic for the invoke[] tag
-     * This mirrors the functionality of InvokeCommand
-     */
-    public static class JavaInvoker {
-        private final TagContext context;
-
-        public JavaInvoker(TagContext context) {
-            this.context = context;
-        }
-
-        public Object executeInvoke(String invokeExpression, JavaObjectTag contextObject) {
-            try {
-                // 1. Preprocess the string to replace Denizen objects with placeholders
-                PreprocessedInvoke preprocessed = preprocess(invokeExpression);
-
-                // 2. Parse the code into AST using JavaParser
-                Expression expression = StaticJavaParser.parseExpression(preprocessed.code());
-
-                // 3. Interpret AST with context object support
-                AstInterpreter interpreter = new AstInterpreter(preprocessed.tagMap(), context, contextObject);
-                return expression.accept(interpreter, null);
-
-            } catch (Exception e) {
-                Debug.echoError(context, "Failed to execute invoke expression: " + e.getMessage());
-                return null;
-            }
-        }
-
-        private PreprocessedInvoke preprocess(String rawString) {
-            // First expand all standard tags <...>
-            String initialString = TagManager.tag(rawString, context);
-            // Replace argument separator '|' with comma
-            initialString = initialString.replace("|", ", ");
-
-            // Wrap strings with spaces in quotes
-            initialString = wrapStringsWithSpaces(initialString);
-            return null;
-        }
-
-        private String wrapStringsWithSpaces(String input) {
-            if (input == null || input.isEmpty()) {
-                return input;
-            }
-
-            StringBuilder result = new StringBuilder();
-            char[] chars = input.toCharArray();
-            int i = 0;
-
-            while (i < chars.length) {
-                char ch = chars[i];
-                if (ch == '(') {
-                    result.append(ch);
-                    i++;
-                    i = processMethodArguments(chars, i, result);
-                } else {
-                    result.append(ch);
-                    i++;
-                }
-            }
-
-            return result.toString();
-        }
-
-        private int processMethodArguments(char[] chars, int start, StringBuilder result) {
-            int i = start;
-            boolean insideQuotes = false;
-            char quoteChar = 0;
-            boolean insideArgument = false;
-            StringBuilder currentArgument = new StringBuilder();
-            int parenDepth = 0;
-
-            while (i < chars.length) {
-                char ch = chars[i];
-
-                if (!insideQuotes && (ch == '"' || ch == '\'')) {
-                    insideQuotes = true;
-                    quoteChar = ch;
-                    result.append(ch);
-                    i++;
-                    continue;
-                } else if (insideQuotes && ch == quoteChar) {
-                    insideQuotes = false;
-                    result.append(ch);
-                    i++;
-                    continue;
-                }
-
-                if (insideQuotes) {
-                    result.append(ch);
-                    i++;
-                    continue;
-                }
-
-                if (ch == '(') {
-                    parenDepth++;
-                    if (insideArgument) {
-                        currentArgument.append(ch);
-                    } else {
-                        result.append(ch);
-                    }
-                    i++;
-                    continue;
-                } else if (ch == ')') {
-                    if (parenDepth > 0) {
-                        parenDepth--;
-                        currentArgument.append(ch);
-                        i++;
-                        continue;
-                    } else {
-                        if (insideArgument) {
-                            String arg = currentArgument.toString().trim();
-                            if (needsQuoting(arg)) {
-                                result.append('"').append(arg).append('"');
-                            } else {
-                                result.append(arg);
-                            }
-                        }
-                        result.append(ch);
-                        return i + 1;
-                    }
-                }
-
-                if (ch == ',' && parenDepth == 0) {
-                    if (insideArgument) {
-                        String arg = currentArgument.toString().trim();
-                        if (needsQuoting(arg)) {
-                            result.append('"').append(arg).append('"');
-                        } else {
-                            result.append(arg);
-                        }
-                        currentArgument.setLength(0);
-                    }
-                    result.append(ch);
-                    insideArgument = false;
-                    i++;
-                    continue;
-                }
-
-                if (Character.isWhitespace(ch) && !insideArgument) {
-                    result.append(ch);
-                    i++;
-                    continue;
-                }
-
-                if (!insideArgument) {
-                    insideArgument = true;
-                }
-
-                currentArgument.append(ch);
-                i++;
-            }
-
-            if (insideArgument) {
-                String arg = currentArgument.toString().trim();
-                if (needsQuoting(arg)) {
-                    result.append('"').append(arg).append('"');
-                } else {
-                    result.append(arg);
-                }
-            }
-
-            return i;
-        }
-
-        private boolean needsQuoting(String arg) {
-            if (arg.isEmpty()) {
-                return false;
-            }
-
-            if ((arg.startsWith("\"") && arg.endsWith("\"")) ||
-                    (arg.startsWith("'") && arg.endsWith("'"))) {
-                return false;
-            }
-
-            if (arg.contains(" ") || arg.contains("\t") || arg.contains("\n")) {
-                return true;
-            }
-
-            if (isValidJavaLiteral(arg) || arg.startsWith("__denizen_obj_") || isValidJavaIdentifierChain(arg)) {
-                return false;
-            }
-
-            return true;
-        }
-
-        private boolean isValidJavaLiteral(String str) {
-            if (str.isEmpty()) return false;
-            if ("true".equals(str) || "false".equals(str) || "null".equals(str)) {
-                return true;
-            }
-            try {
-                Double.parseDouble(str);
-                return true;
-            } catch (NumberFormatException e) {
-                return false;
-            }
-        }
-
-        private boolean isValidJavaIdentifierChain(String str) {
-            if (str.isEmpty()) return false;
-            String[] parts = str.split("\\.");
-            for (String part : parts) {
-                if (!isValidJavaIdentifier(part)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private boolean isValidJavaIdentifier(String str) {
-            if (str.isEmpty()) return false;
-            if (!Character.isJavaIdentifierStart(str.charAt(0))) {
-                return false;
-            }
-            for (int i = 1; i < str.length(); i++) {
-                if (!Character.isJavaIdentifierPart(str.charAt(i))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        // Record for storing preprocessing results
-        private record PreprocessedInvoke(String code, Map<String, ObjectTag> tagMap) {}
-
-        // AST Interpreter with context object support
-        private static class AstInterpreter extends GenericVisitorAdapter<Object, Void> {
-            private final Map<String, ObjectTag> tagMap;
-            private final TagContext context;
-            private final JavaObjectTag contextObject;
-
-            public AstInterpreter(Map<String, ObjectTag> tagMap, TagContext context, JavaObjectTag contextObject) {
-                this.tagMap = tagMap;
-                this.context = context;
-                this.contextObject = contextObject;
-            }
-
-            @Override
-            public Object visit(MethodCallExpr n, Void arg) {
-                Object scope = n.getScope().map(s -> s.accept(this, arg)).orElse(contextObject != null ? contextObject.getJavaObject() : null);
-                if (scope == null) {
-                    throw new IllegalStateException("Method call '" + n.getNameAsString() + "' has no scope (object or class).");
-                }
-
-                List<ObjectTag> arguments = new ArrayList<>();
-                for (Expression paramExpr : n.getArguments()) {
-                    Object paramValue = paramExpr.accept(this, arg);
-                    arguments.add(CoreUtilities.objectToTagForm(paramValue, context, false, false, true));
-                }
-
-                if (scope instanceof Class) {
-                    return ReflectionHandler.invokeStaticMethod((Class<?>) scope, n.getNameAsString(), arguments, context);
-                } else {
-                    return ReflectionHandler.invokeMethod(scope, n.getNameAsString(), arguments, context);
-                }
-            }
-
-            @Override
-            public Object visit(NameExpr n, Void arg) {
-                String name = n.getNameAsString();
-                if (tagMap.containsKey(name)) {
-                    ObjectTag tag = tagMap.get(name);
-                    return tag != null ? tag.getJavaObject() : null;
-                }
-
-                Class<?> clazz = ReflectionHandler.getClassSilent(name);
-                if (clazz != null) {
-                    return clazz;
-                }
-
-                return name;
-            }
-
-            @Override
-            public Object visit(FieldAccessExpr n, Void arg) {
-                Object scope = n.getScope().accept(this, arg);
-                String fieldName = n.getNameAsString();
-
-                if (scope instanceof String) {
-                    String fullClassName = scope + "." + fieldName;
-                    Class<?> clazz = ReflectionHandler.getClassSilent(fullClassName);
-                    if (clazz != null) {
-                        return clazz;
-                    }
-                    return fullClassName;
-                }
-
-                if (scope == null) {
-                    throw new IllegalStateException("Field access '" + fieldName + "' has no scope (object or class).");
-                }
-
-                if (scope instanceof Class) {
-                    Object staticField = ReflectionHandler.getStaticField((Class<?>) scope, fieldName, context);
-                    if (staticField != null) {
-                        return staticField;
-                    }
-                    Class<?> nestedClass = ReflectionHandler.getClassSilent(scope.toString().replace("class ", "") + "." + fieldName);
-                    if (nestedClass != null) {
-                        return nestedClass;
-                    }
-                    throw new IllegalStateException("Cannot resolve static field or class: " + n.toString());
-                } else {
-                    return ReflectionHandler.getField(scope, fieldName, context);
-                }
-            }
-
-            @Override
-            public Object visit(ObjectCreationExpr n, Void arg) {
-                String className = n.getType().toString();
-                List<ObjectTag> arguments = new ArrayList<>();
-                for (Expression paramExpr : n.getArguments()) {
-                    Object paramValue = paramExpr.accept(this, arg);
-                    arguments.add(CoreUtilities.objectToTagForm(paramValue, context, false, false, true));
-                }
-                return ReflectionHandler.construct(className, arguments, context);
-            }
-
-            @Override public Object visit(StringLiteralExpr n, Void arg) { return n.getValue(); }
-            @Override public Object visit(IntegerLiteralExpr n, Void arg) { return n.asInt(); }
-            @Override public Object visit(DoubleLiteralExpr n, Void arg) { return n.asDouble(); }
-            @Override public Object visit(BooleanLiteralExpr n, Void arg) { return n.getValue(); }
-            @Override public Object visit(LongLiteralExpr n, Void arg) { return n.asLong(); }
-            @Override public Object visit(NullLiteralExpr n, Void arg) { return null; }
-        }
-    }
 }
