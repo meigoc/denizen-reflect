@@ -2,11 +2,20 @@ package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
 import com.denizenscript.denizencore.objects.Argument;
+import com.denizenscript.denizencore.objects.ObjectFetcher;
+import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
+import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
+import meigo.denizen.reflect.object.JavaObjectTag;
 import meigo.denizen.reflect.util.JavaExpressionParser;
+import meigo.denizen.reflect.util.ReflectionHandler;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 public class InvokeCommand extends AbstractCommand {
 
@@ -69,6 +78,49 @@ public class InvokeCommand extends AbstractCommand {
         }
     }
 
+    /**
+     * Attempts to find a class by its name without printing errors to the console.
+     * @param className The fully qualified name of the class.
+     * @return The Class object or null if not found.
+     */
+    private Class<?> findClassSilently(String className) {
+        try {
+            return Class.forName(className);
+        } catch (ClassNotFoundException | NullPointerException e) {
+            return null;
+        }
+    }
+
+    private ObjectTag resolveDottedTarget(String targetPart, TagContext context) {
+        String[] parts = targetPart.split("\\.");
+        for (int i = parts.length; i > 0; i--) {
+            String className = String.join(".", Arrays.copyOfRange(parts, 0, i));
+            // Use our new silent method instead of ReflectionHandler.getClass
+            Class<?> clazz = findClassSilently(className);
+            if (clazz != null) {
+                Object current = clazz;
+                for (int j = i; j < parts.length; j++) {
+                    Object fieldValue;
+                    if (current instanceof Class) {
+                        fieldValue = ReflectionHandler.getStaticField((Class<?>) current, parts[j], context);
+                    } else {
+                        fieldValue = ReflectionHandler.getField(current, parts[j], context);
+                    }
+                    if (fieldValue == null) {
+                        // If a field is not found, this path is invalid, return null and let the loop try a shorter class name
+                        current = null;
+                        break;
+                    }
+                    current = fieldValue;
+                }
+                if (current != null) {
+                    return ReflectionHandler.wrapObject(current, context);
+                }
+            }
+        }
+        return ObjectFetcher.pickObjectFor(targetPart, context);
+    }
+
     @Override
     public void execute(ScriptEntry scriptEntry) {
         ElementTag invokeString = scriptEntry.getElement("invoke_string");
@@ -78,15 +130,74 @@ public class InvokeCommand extends AbstractCommand {
         }
 
         try {
-            JavaExpressionParser parser = new JavaExpressionParser(scriptEntry.getContext());
-            Object result = parser.execute(invokeString.asString(), null); // No context object for the command
+            try {
+                JavaExpressionParser parser = new JavaExpressionParser(scriptEntry.getContext());
+                Object result = parser.execute(invokeString.asString(), null);
 
-            if (scriptEntry.dbCallShouldDebug()) {
-                Debug.log("Invocation successful. Result: " + (result != null ? result.toString() : "null"));
+                if (scriptEntry.dbCallShouldDebug()) {
+                    Debug.log("Invocation successful via JavaExpressionParser. Result: " + (result != null ? result.toString() : "null"));
+                }
+                return; // End execution if successful
+            } catch (Throwable e) {
+                if (scriptEntry.dbCallShouldDebug()) {
+                    Debug.log("JavaExpressionParser failed (as expected for simple syntax), falling back to Denizen-style parser...");
+                }
+
+                String commandString = invokeString.asString();
+                int lastDot = commandString.lastIndexOf('.');
+                if (lastDot == -1) throw e;
+
+                String targetPart = commandString.substring(0, lastDot);
+                String methodPart = commandString.substring(lastDot + 1);
+
+                int openParen = methodPart.indexOf('(');
+                if (openParen == -1 || !methodPart.endsWith(")")) throw e;
+
+                String methodName = methodPart.substring(0, openParen);
+                String argsPart = methodPart.substring(openParen + 1, methodPart.length() - 1);
+
+                List<ObjectTag> arguments = new ArrayList<>();
+                if (!argsPart.isEmpty()) {
+                    // Split by comma, but not inside nested parentheses (basic handling)
+                    // For robust parsing, a more complex splitter would be needed, but this covers most cases.
+                    String[] argStrings = argsPart.split(",");
+                    for (String argStr : argStrings) {
+                        arguments.add(ObjectFetcher.pickObjectFor(argStr.trim(), scriptEntry.getContext()));
+                    }
+                }
+
+                ObjectTag targetObject = resolveDottedTarget(targetPart, scriptEntry.getContext());
+                if (targetObject == null) {
+                    throw new RuntimeException("Could not resolve target: " + targetPart);
+                }
+
+                Object javaTarget;
+                if (targetObject instanceof JavaObjectTag) {
+                    javaTarget = ((JavaObjectTag) targetObject).getJavaObject();
+                } else {
+                    // Also use our silent method here to avoid errors on non-class ElementTags
+                    Class<?> clazz = findClassSilently(targetObject.toString());
+                    if (clazz != null) {
+                        javaTarget = clazz;
+                    } else {
+                        javaTarget = targetObject.getJavaObject();
+                    }
+                }
+
+                if (javaTarget == null) {
+                    throw new RuntimeException("Resolved target is null or does not have a Java object representation: " + targetPart);
+                }
+
+                if (javaTarget instanceof Class) {
+                    ReflectionHandler.invokeStaticMethod((Class<?>) javaTarget, methodName, arguments, scriptEntry.getContext());
+                } else {
+                    ReflectionHandler.invokeMethod(javaTarget, methodName, arguments, scriptEntry.getContext());
+                }
+
+                if (scriptEntry.dbCallShouldDebug()) {
+                    Debug.log("Invocation successful via Denizen-style fallback parser.");
+                }
             }
-            // Note: The result of the command is not currently saved or used.
-            // This might be a future enhancement (e.g., save to an entry).
-
         } catch (Exception e) {
             Debug.echoError(scriptEntry, "Failed to execute invoke command.");
             Debug.echoError(scriptEntry, e);
