@@ -5,6 +5,6 @@ contributors: ['gleb_petrovich (github.com/meigoc)', 'isnsest (github.com/meigoc
 version: ${version}
 main: meigo.denizen.reflect.DenizenReflect
 description: Allows Denizen scripts to directly interact with and manipulate Java objects.
-website: https://github.com/meigoc/DenizenReflect/
+website: https://github.com/meigoc/denizen-reflect
 depend: [Denizen]
 api-version: '1.21'
