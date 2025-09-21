@@ -4,6 +4,10 @@
 
 **denizen-reflect**
 
+[![CodeFactor](https://www.codefactor.io/repository/github/meigoc/denizen-reflect/badge?style=flat-square)](https://www.codefactor.io/repository/github/meigoc/denizen-reflect)
+[![Total line](https://tokei.rs/b1/github/meigoc/denizen-reflect?category=code&style=flat-square)](https://github.com/meigoc/denizen-reflect)
+[![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/meigoc/denizen-reflect?style=flat-square&logo=github)](https://github.com/meigoc/denizen-reflect/issues)
+
 
 [Documentation](https://github.com/meigoc/denizen-reflect/wiki)
 </div>
