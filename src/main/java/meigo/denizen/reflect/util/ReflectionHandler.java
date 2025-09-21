@@ -2,7 +2,6 @@ package meigo.denizen.reflect.util;
 
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
-import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
@@ -17,7 +16,6 @@ import java.util.stream.Collectors;
 
 public class ReflectionHandler {
 
-    // Константы для читаемости
     private static final int CONVERSION_IMPOSSIBLE = 1000;
     private static final int CONVERSION_DIRECT_MATCH = 1;
     private static final int CONVERSION_PRIMITIVE = 2;
@@ -26,7 +24,6 @@ public class ReflectionHandler {
     private static final int CONVERSION_NULL = 50;
     private static final int CONVERSION_OBJECT_FALLBACK = 100;
 
-    // Кэш для методов (улучшение производительности)
     private static final Map<String, Method[]> methodCache = new ConcurrentHashMap<>();
     private static final Map<String, Constructor<?>[]> constructorCache = new ConcurrentHashMap<>();
 
@@ -34,22 +31,10 @@ public class ReflectionHandler {
         if (result == null) {
             return null;
         }
-        if (result.getClass().isArray()) {
-            ListTag list = new ListTag();
-            int length = Array.getLength(result);
-            for (int i = 0; i < length; i++) {
-                Object item = Array.get(result, i);
-                list.addObject(CoreUtilities.objectToTagForm(item, context, false, false, true));
-            }
-            return list;
+        if (isSimpleType(result)) {
+            return new ElementTag(result.toString());
         }
-        ObjectTag converted = CoreUtilities.objectToTagForm(result, context, false, false, false);
-        if (converted instanceof ElementTag && !isSimpleType(result)) {
-            if (converted.identify().equals(result.toString())) {
-                return new JavaObjectTag(result);
-            }
-        }
-        return converted;
+        return new JavaObjectTag(result);
     }
 
     private static boolean isSimpleType(Object obj) {
@@ -82,23 +67,13 @@ public class ReflectionHandler {
         }
     }
 
-    /**
-     * Обновлённая логика оценки "стоимости" приведения аргумента Denizen (ObjectTag) к требуемому Java типу.
-     * Учитывает:
-     * - JavaObjectTag (unwrap и прямой match)
-     * - ElementTag -> примитивы, String, URI
-     * - null для примитивов
-     */
     private static int calculateConversionCost(Class<?> javaParam, ObjectTag denizenParam) {
-        // Если это наша обёртка JavaObjectTag, сначала распакуем хранимый объект
         if (denizenParam instanceof JavaObjectTag) {
             Object heldObject = ((JavaObjectTag) denizenParam).getJavaObject();
             if (heldObject != null) {
-                // Прямое соответствие типа
                 if (javaParam.isInstance(heldObject)) {
                     return CONVERSION_DIRECT_MATCH;
                 }
-                // Попробуем оценить по tag-форме распакованного объекта (как раньше делалось)
                 return calculateConversionCost(javaParam, CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext));
             }
         }
@@ -122,7 +97,6 @@ public class ReflectionHandler {
         }
 
         if (denizenParam instanceof ElementTag element) {
-            // Примитивные соответствия
             if ((javaParam == int.class || javaParam == Integer.class) && element.isInt()) return CONVERSION_PRIMITIVE;
             if ((javaParam == double.class || javaParam == Double.class) && element.isDouble()) return CONVERSION_PRIMITIVE;
             if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return CONVERSION_PRIMITIVE;
@@ -131,15 +105,12 @@ public class ReflectionHandler {
             if ((javaParam == short.class || javaParam == Short.class) && element.isInt()) return CONVERSION_PRIMITIVE + 2;
             if ((javaParam == byte.class || javaParam == Byte.class) && element.isInt()) return CONVERSION_PRIMITIVE + 3;
 
-            // Widening (числовые расширения)
             if ((javaParam == long.class || javaParam == Long.class) && element.isInt()) return CONVERSION_WIDENING;
             if ((javaParam == float.class || javaParam == Float.class) && element.isInt()) return CONVERSION_WIDENING + 1;
             if ((javaParam == double.class || javaParam == Double.class) && (element.isInt() || element.isFloat())) return CONVERSION_WIDENING + 2;
 
-            // Поддержка URI из строки
             if (javaParam == URI.class) {
                 try {
-                    // пробуем распарсить — если получилось, дешёвая конверсия
                     URI.create(element.asString());
                     return CONVERSION_PRIMITIVE;
                 } catch (Exception ignored) {
@@ -170,29 +141,18 @@ public class ReflectionHandler {
         }
     }
 
-    /**
-     * Усовершенствованная конвертация ObjectTag -> Java объект ожидаемого типа.
-     * Учитывает:
-     * - JavaObjectTag.unwrap (при возможности возвращает held object)
-     * - ElementTag -> primitives, String, URI
-     * - fallback: denizenParam.toString() для String
-     */
     private static Object convertDenizenToJava(Class<?> javaParam, ObjectTag denizenParam) {
         if (denizenParam == null) return null;
 
-        // 1) Если это JavaObjectTag — распакуем хранимый объект и попробуем напрямую
         if (denizenParam instanceof JavaObjectTag) {
             Object heldObject = ((JavaObjectTag) denizenParam).getJavaObject();
             if (heldObject != null) {
-                // Если распакованный объект уже подходит по типу -> вернуть его
                 if (javaParam.isInstance(heldObject)) {
                     return heldObject;
                 }
-                // Если ожидается String — вернуть toString() распакованного объекта
                 if (javaParam == String.class) {
                     return heldObject.toString();
                 }
-                // Если ожидается URI и распакованный объект — строка, попробовать распарсить
                 if (javaParam == URI.class && heldObject instanceof String) {
                     try {
                         return URI.create((String) heldObject);
@@ -200,7 +160,6 @@ public class ReflectionHandler {
                         throw new IllegalArgumentException("Value '" + heldObject + "' is not a valid URI");
                     }
                 }
-                // Иначе попытаться конвертировать через tag-форму распакованного объекта
                 ObjectTag wrapped = CoreUtilities.objectToTagForm(heldObject, CoreUtilities.noDebugContext, false, false, true);
                 if (wrapped != null && wrapped != denizenParam) {
                     Object conv = convertDenizenToJava(javaParam, wrapped);
@@ -209,13 +168,11 @@ public class ReflectionHandler {
             }
         }
 
-        // 2) Проверим, есть ли у ObjectTag собственный java-объект и подходит ли он напрямую
         Object javaObject = denizenParam.getJavaObject();
         if (javaObject != null && javaParam.isInstance(javaObject)) {
             return javaObject;
         }
 
-        // 3) ElementTag -> примитивы / URI / String
         if (denizenParam instanceof ElementTag element) {
             // Enum
             Object enumValue = tryConvertElementToEnum(javaParam, element);
@@ -241,7 +198,6 @@ public class ReflectionHandler {
                 return (byte) v;
             }
 
-            // URI из строки
             if (javaParam == URI.class) {
                 try {
                     return URI.create(element.asString());
@@ -251,14 +207,12 @@ public class ReflectionHandler {
             }
         }
 
-        // 4) Если ожидается String — вернуть что есть (prefer ElementTag.asString)
         if (javaParam == String.class) {
             if (denizenParam instanceof ElementTag e) return e.asString();
             if (javaObject != null) return javaObject.toString();
             return denizenParam.toString();
         }
 
-        // 5) Fallback — вернуть сам javaObject если есть (возможно null)
         return javaObject;
     }
 
@@ -382,17 +336,39 @@ public class ReflectionHandler {
             if (bestMatch != null) {
                 Object[] javaParams = convertParams(bestMatch.getParameterTypes(), params);
                 bestMatch.setAccessible(true);
-                return bestMatch.invoke(instance, javaParams);
+                Object result = bestMatch.invoke(instance, javaParams);
+                if (bestMatch.getReturnType().equals(void.class)) {
+                    if (instance == null && javaParams.length > 0 && (javaParams[0] instanceof java.util.Collection)) {
+                        return javaParams[0];
+                    }
+                    return instance != null ? instance : clazz;
+                }
+                return result;
             } else {
                 String paramTypesStr = params.stream()
                         .map(p -> p != null ? p.getDenizenObjectType().toString() : "null")
                         .collect(Collectors.joining(", "));
                 Debug.echoError(context, "Could not find a matching method '" + methodName + "(" + paramTypesStr + ")' for class '" + clazz.getName() + "'.");
+
+                if (candidateMethods.length > 0) {
+                    Debug.echoError(context, "Found " + candidateMethods.length + " potential method(s), but none matched the argument types:");
+                    for (Method m : candidateMethods) {
+                        String signature = Arrays.stream(m.getParameterTypes())
+                                .map(Class::getCanonicalName)
+                                .collect(Collectors.joining(", "));
+                        Debug.echoError(context, "-> " + m.getName() + "(" + signature + ")");
+                    }
+                }
+
                 return null;
             }
         } catch (Exception e) {
-            Debug.echoError(context, "Error during Java method invocation:");
-            Debug.echoError(e);
+            Throwable targetException = e;
+            if (e instanceof InvocationTargetException && e.getCause() != null) {
+                targetException = e.getCause();
+            }
+            Debug.echoError(context, "An error occurred during Java method invocation '" + methodName + "':");
+            Debug.echoError(targetException);
             return null;
         }
     }

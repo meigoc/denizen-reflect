@@ -10,7 +10,6 @@ import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.denizenscript.denizencore.utilities.text.StringHolder;
-import meigo.denizen.reflect.util.JavaExpressionParser;
 import meigo.denizen.reflect.util.ReflectionHandler;
 
 import java.util.*;
@@ -74,7 +73,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         }
 
         if (cleanedCount > 0) {
-            Debug.log("Cleaned up " + cleanedCount + " expired JavaObjectTag instances");
+            //Debug.log("Cleaned up " + cleanedCount + " expired JavaObjectTag instances");
         }
     }
 
@@ -103,7 +102,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         }
     }
 
-    private void updateAccessTime() {
+    public void updateAccessTime() {
         if (uniqueId != null) {
             lastAccessTimes.put(uniqueId, System.currentTimeMillis());
         }
@@ -167,25 +166,6 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             return ReflectionHandler.wrapObject(result, attribute.context);
         });
 
-        // Advanced invoker that parses a full Java expression.
-        tagProcessor.registerTag(ObjectTag.class, "invoke", (attribute, object) -> {
-            String invokeExpression = attribute.getParam();
-            if (invokeExpression == null || invokeExpression.isEmpty()) {
-                Debug.echoError(attribute.context, "invoke[] tag requires a Java expression parameter.");
-                return null;
-            }
-            try {
-                object.updateAccessTime();
-                JavaExpressionParser parser = new JavaExpressionParser(attribute.context);
-                // Pass the current object as the context for implicit 'this' calls
-                Object result = parser.execute(invokeExpression, object.getJavaObject());
-                return ReflectionHandler.wrapObject(result, attribute.context);
-            } catch (Exception e) {
-                Debug.echoError(attribute.context, "Error in invoke[] tag: " + e.getMessage());
-                return null;
-            }
-        });
-
         tagProcessor.registerTag(ObjectTag.class, "field", (attribute, object) -> {
             String fieldName = attribute.getParam();
             Object result;
@@ -208,7 +188,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             object.updateAccessTime();
             return CoreUtilities.objectToTagForm(object.heldObject, attribute.context);
         });
-        tagProcessor.registerTag(ElementTag.class, "identify", (attribute, object) -> new ElementTag(object.identify()));
+        //tagProcessor.registerTag(ElementTag.class, "identify", (attribute, object) -> new ElementTag(object.identify()));
         tagProcessor.registerTag(ElementTag.class, "debug", (attribute, object) -> new ElementTag(object.debuggable()));
         tagProcessor.registerMechanism("set_field", false, MapTag.class, (object, mechanism, map) -> {
             for (Map.Entry<StringHolder, ObjectTag> entry : map.entrySet()) {
@@ -226,7 +206,8 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         if (args.isEmpty()) {
             return Collections.emptyList();
         }
-        return ListTag.valueOf(args, context).objectForms;
+        // Use comma as a separator to align with Java syntax. Pipe is no longer supported in expressions.
+        return ListTag.valueOf(args.replace('|', ','), context).objectForms;
     }
 
     @Override public String getPrefix() { return "java"; }

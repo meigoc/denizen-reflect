@@ -1,1 +1,1 @@
-rootProject.name = "DenizenReflect"
+rootProject.name = "denizen-reflect"

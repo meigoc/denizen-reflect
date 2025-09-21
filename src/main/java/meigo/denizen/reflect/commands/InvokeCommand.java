@@ -1,5 +1,6 @@
 package meigo.denizen.reflect.commands;
 
+
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
 import com.denizenscript.denizencore.objects.Argument;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
@@ -41,8 +42,8 @@ public class InvokeCommand extends AbstractCommand {
     // The expression should follow Java-like syntax. You can reference Denizen objects (like p@, l@, etc.)
     // and saved JavaObjectTags directly within the expression. The command will automatically parse them.
     //
-    // The argument separator for methods is the standard comma ',', but '|' is also supported and will be
-    // automatically converted to a comma.
+    // The argument separator for methods is the standard comma ','. The pipe character '|' is not supported here
+    // to avoid conflicts with Java's bitwise OR operator.
     //
     // This command is powerful but complex. For simpler interactions, consider using the `import` command
     // and the tags available on JavaObjectTag, such as `<[my_object].invoke[...]>` and `<[my_object].field[...]`.
@@ -52,17 +53,17 @@ public class InvokeCommand extends AbstractCommand {
     //
     // @Usage
     // Use to get the system's temporary directory path and echo it.
-    // - invoke <def[system_class].getProperty("java.io.tmpdir")>
+    // - invoke 'System.getProperty("java.io.tmpdir")'
     //
     // @Usage
     // Use to create a new point object and then move it.
-    // - import java.awt.Point constructor:0|0 as:my_point
-    // - invoke <[my_point]>.move(10, 20)
+    // - import java.awt.Point as:my_point constructor:0,0
+    // - invoke '<[my_point]>.move(10, 20)'
     // - narrate "Point is now at <[my_point]>"
     //
     // @Usage
     // Use to call a static method with a Denizen player object as a parameter.
-    // - invoke com.example.MyAPI.staticPlayerMethod(<player>)
+    // - invoke 'com.example.MyAPI.staticPlayerMethod(<player>)'
     // -->
     @Override
     public void parseArgs(ScriptEntry scriptEntry) throws InvalidArgumentsException {
@@ -135,12 +136,12 @@ public class InvokeCommand extends AbstractCommand {
                 Object result = parser.execute(invokeString.asString(), null);
 
                 if (scriptEntry.dbCallShouldDebug()) {
-                    Debug.log("Invocation successful via JavaExpressionParser. Result: " + (result != null ? result.toString() : "null"));
+                    //Debug.log("Invocation successful via JavaExpressionParser. Result: " + (result != null ? result.toString() : "null"));
                 }
                 return; // End execution if successful
             } catch (Throwable e) {
                 if (scriptEntry.dbCallShouldDebug()) {
-                    Debug.log("JavaExpressionParser failed (as expected for simple syntax), falling back to Denizen-style parser...");
+                    //Debug.log("JavaExpressionParser failed (as expected for simple syntax), falling back to Denizen-style parser...");
                 }
 
                 String commandString = invokeString.asString();
@@ -195,7 +196,7 @@ public class InvokeCommand extends AbstractCommand {
                 }
 
                 if (scriptEntry.dbCallShouldDebug()) {
-                    Debug.log("Invocation successful via Denizen-style fallback parser.");
+                    //Debug.log("Invocation successful via Denizen-style fallback parser.");
                 }
             }
         } catch (Exception e) {

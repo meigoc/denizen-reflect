@@ -4,7 +4,10 @@ security:
   # (like 'java.io' or 'java.net') can create severe security vulnerabilities on your server.
   # Each entry MUST end with a dot (.).
   allowed-packages:
-    - "org.bukkit."
-    - "java.lang."
-    - "java.util."
-    - "java.math."
+    - "org."
+    - "java."
+    - "io."
+    - "com."
+    - "meigo."
+    - "net."
+    - "dev."

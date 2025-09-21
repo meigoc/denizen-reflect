@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,115 +44,106 @@ public class JavaExpressionParser {
      * @return The result of the invocation.
      */
     public Object execute(String expressionString, Object contextObject) throws Exception {
-        // 1. Preprocess to handle Denizen tags
         PreprocessedExpression preprocessed = preprocess(expressionString);
-
-        // 2. Parse into an AST
         Expression ast = StaticJavaParser.parseExpression(preprocessed.code());
-
-        // 3. Interpret the AST
         AstInterpreter interpreter = new AstInterpreter(preprocessed.tagMap(), context, Optional.ofNullable(contextObject));
         return ast.accept(interpreter, null);
     }
 
     private PreprocessedExpression preprocess(String rawString) {
-        // First, parse standard Denizen tags <...>
         String processedString = TagManager.tag(rawString, context);
-        // Replace Denizen argument separator with Java's
-        processedString = processedString.replace("|", ", ");
-
-        // Then, replace Denizen objects like p@, l@, java@ with placeholders
         return new DenizenObjectPlaceholderParser(context).parse(processedString);
     }
 
-    /**
-     * Stores the result of preprocessing.
-     */
     public record PreprocessedExpression(String code, Map<String, ObjectTag> tagMap) {
     }
 
-    // ================================================================================= //
-    // ================== Denizen Object Placeholder Parser ============================ //
-    // ================================================================================= //
-
-    /**
-     * Parses a string to replace Denizen-specific object notations (like "p@Player", "java@...")
-     * with unique placeholders, returning the modified string and a map of placeholders to the original ObjectTags.
-     */
     private static class DenizenObjectPlaceholderParser {
 
         private final Map<String, ObjectTag> tagMap = new HashMap<>();
         private final TagContext context;
         private int tagCounter = 0;
         private static final Pattern JAVA_OBJECT_PATTERN = Pattern.compile("\\bjava@([a-fA-F0-9-]+|[\\w.\\$]+)");
+        private static final Pattern OTHER_OBJECT_PATTERN = Pattern.compile("([a-zA-Z0-9_]+)@(\\[.*?\\]|[^\\s(),.\\[\\]]+)");
+
 
         public DenizenObjectPlaceholderParser(TagContext context) {
             this.context = context;
         }
 
         public PreprocessedExpression parse(String input) {
-            String result = input;
-            while (true) {
-                String newResult = replaceLeafTags(result);
-                if (newResult.equals(result)) {
-                    break;
-                }
-                result = newResult;
-            }
-            return new PreprocessedExpression(result, tagMap);
+            String afterJavaPass = resolveAndReplaceJavaTags(input);
+            String afterOtherPass = replaceOtherTags(afterJavaPass);
+            return new PreprocessedExpression(afterOtherPass, tagMap);
         }
 
-        private String replaceLeafTags(String input) {
-            StringBuilder result = new StringBuilder(input);
-            List<TagInfo> allTags = findTags(input);
-
-            // Sort right-to-left to avoid index shifting during replacement
-            allTags.sort((a, b) -> Integer.compare(b.start, b.start));
-
-            for (TagInfo tag : allTags) {
-                try {
-                    ObjectTag parsed = ObjectFetcher.pickObjectFor(tag.fullTag, context);
-                    // Ensure it's a real object, not just an ElementTag of the same string
-                    if (parsed != null && !(parsed instanceof ElementTag && parsed.identify().equals(tag.fullTag))) {
-                        String placeholder = "__denizen_obj_" + (tagCounter++);
-                        tagMap.put(placeholder, parsed);
-                        result.replace(tag.start, tag.end, placeholder);
-                    }
-                } catch (Exception ignored) {
-                    // Ignore parsing errors, leave invalid tags as is
-                }
-            }
-            return result.toString();
-        }
-
-        private List<TagInfo> findTags(String input) {
-            List<TagInfo> tags = new ArrayList<>();
-            // Regex to find "identifier@value" or "identifier@[value]"
-            Pattern denizenTagPattern = Pattern.compile("([a-zA-Z0-9_]+)@(\\[.*?\\]|[^\\s(),.\\[\\]]+)");
-            Matcher matcher = denizenTagPattern.matcher(input);
+        private String resolveAndReplaceJavaTags(String input) {
+            StringBuilder sb = new StringBuilder(input);
+            Matcher matcher = JAVA_OBJECT_PATTERN.matcher(sb);
+            List<MatchResult> matches = new ArrayList<>();
             while (matcher.find()) {
-                // Heuristic to avoid matching email addresses
-                if (matcher.start() > 0 && input.charAt(matcher.start() - 1) == '.') {
+                matches.add(matcher.toMatchResult());
+            }
+
+            for (int i = matches.size() - 1; i >= 0; i--) {
+                MatchResult match = matches.get(i);
+                String content = match.group(1);
+                String currentPath = content;
+                Class<?> foundClass = null;
+
+                while (true) {
+                    if (currentPath.isEmpty()) break;
+                    Class<?> clazz = ReflectionHandler.getClassSilent(currentPath);
+                    if (clazz != null) {
+                        foundClass = clazz;
+                        break;
+                    }
+                    int lastDot = currentPath.lastIndexOf('.');
+                    if (lastDot == -1) break;
+                    currentPath = currentPath.substring(0, lastDot);
+                }
+
+                if (foundClass != null) {
+                    String placeholder = "__denizen_java_" + (tagCounter++);
+                    tagMap.put(placeholder, new JavaObjectTag(foundClass));
+                    int replaceStart = match.start();
+                    int replaceEnd = match.start() + "java@".length() + currentPath.length();
+                    sb.replace(replaceStart, replaceEnd, placeholder);
+                }
+            }
+            return sb.toString();
+        }
+
+        private String replaceOtherTags(String input) {
+            StringBuilder sb = new StringBuilder(input);
+            List<MatchResult> matches = new ArrayList<>();
+            Matcher matcher = OTHER_OBJECT_PATTERN.matcher(sb);
+            while (matcher.find()) {
+                matches.add(matcher.toMatchResult());
+            }
+
+            for (int i = matches.size() - 1; i >= 0; i--) {
+                MatchResult match = matches.get(i);
+                //if (match.group(1).equals("java")) {
+                //    continue;
+                //}
+                if (match.start() > 0 && sb.charAt(match.start() - 1) == '.') {
                     continue;
                 }
-                tags.add(new TagInfo(matcher.group(0), matcher.start(), matcher.end()));
+                String fullTag = match.group(0);
+                try {
+                    ObjectTag parsed = ObjectFetcher.pickObjectFor(fullTag, context);
+                    if (parsed != null && !(parsed instanceof ElementTag && parsed.identify().equals(fullTag))) {
+                        String placeholder = "__denizen_other_" + (tagCounter++);
+                        tagMap.put(placeholder, parsed);
+                        sb.replace(match.start(), match.end(), placeholder);
+                    }
+                } catch (Exception ignored) {
+                }
             }
-
-            // Also find expanded java objects like "java@uuid"
-            Matcher javaMatcher = JAVA_OBJECT_PATTERN.matcher(input);
-            while (javaMatcher.find()) {
-                tags.add(new TagInfo(javaMatcher.group(0), javaMatcher.start(), javaMatcher.end()));
-            }
-            return tags;
+            return sb.toString();
         }
-
-        private record TagInfo(String fullTag, int start, int end) {}
     }
-
-
-    // ================================================================================= //
-    // ===================== AST Interpreter =========================================== //
-    // ================================================================================= //
 
     /**
      * Visits nodes of the JavaParser AST and executes corresponding reflection calls.
@@ -181,8 +173,7 @@ public class JavaExpressionParser {
             }
             if (scope instanceof Class) {
                 return ReflectionHandler.invokeStaticMethod((Class<?>) scope, n.getNameAsString(), arguments, context);
-            }
-            else {
+            } else {
                 return ReflectionHandler.invokeMethod(scope, n.getNameAsString(), arguments, context);
             }
         }
@@ -201,8 +192,7 @@ public class JavaExpressionParser {
             }
             if (scope instanceof Class) {
                 return ReflectionHandler.getStaticField((Class<?>) scope, fieldName, context);
-            }
-            else {
+            } else {
                 return ReflectionHandler.getField(scope, fieldName, context);
             }
         }
@@ -233,11 +223,34 @@ public class JavaExpressionParser {
         }
 
         // --- Handle Literals ---
-        @Override public Object visit(StringLiteralExpr n, Void arg) { return n.getValue(); }
-        @Override public Object visit(IntegerLiteralExpr n, Void arg) { return Integer.valueOf(n.getValue()); }
-        @Override public Object visit(DoubleLiteralExpr n, Void arg) { return Double.valueOf(n.getValue()); }
-        @Override public Object visit(BooleanLiteralExpr n, Void arg) { return n.getValue(); }
-        @Override public Object visit(LongLiteralExpr n, Void arg) { return Long.valueOf(n.getValue().replace("L", "")); }
-        @Override public Object visit(NullLiteralExpr n, Void arg) { return null; }
+        @Override
+        public Object visit(StringLiteralExpr n, Void arg) {
+            return n.getValue();
+        }
+
+        @Override
+        public Object visit(IntegerLiteralExpr n, Void arg) {
+            return Integer.valueOf(n.getValue());
+        }
+
+        @Override
+        public Object visit(DoubleLiteralExpr n, Void arg) {
+            return Double.valueOf(n.getValue());
+        }
+
+        @Override
+        public Object visit(BooleanLiteralExpr n, Void arg) {
+            return n.getValue();
+        }
+
+        @Override
+        public Object visit(LongLiteralExpr n, Void arg) {
+            return Long.valueOf(n.getValue().replace("L", ""));
+        }
+
+        @Override
+        public Object visit(NullLiteralExpr n, Void arg) {
+            return null;
+        }
     }
 }
