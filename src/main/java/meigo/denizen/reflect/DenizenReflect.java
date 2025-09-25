@@ -11,9 +11,12 @@ import meigo.denizen.reflect.commands.ImportCommand;
 import meigo.denizen.reflect.commands.InvokeCommand;
 import meigo.denizen.reflect.object.JavaObjectTag;
 import meigo.denizen.reflect.util.JavaExpressionParser;
+import meigo.denizen.reflect.util.LibraryLoader;
 import meigo.denizen.reflect.util.ReflectionHandler;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -85,6 +88,14 @@ public class DenizenReflect extends JavaPlugin {
         }
         else {
             Debug.log("Allowed packages: " + String.join(", ", allowedPackages));
+        }
+
+        try {
+            Path libsFolder = getDataFolder().toPath().resolve("libs");
+            LibraryLoader.loadLibraries(libsFolder);
+        } catch (IOException e) {
+            Debug.echoError("Failed to load external libraries for DenizenReflect:");
+            Debug.echoError(e);
         }
 
         try {

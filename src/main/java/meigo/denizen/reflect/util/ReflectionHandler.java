@@ -51,7 +51,7 @@ public class ReflectionHandler {
 
     public static Class<?> getClass(String className, TagContext context) {
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = Class.forName(className, true, LibraryLoader.getClassLoader());
             if (!isClassAllowed(clazz)) {
                 if (context == null || context.showErrors()) {
                     Debug.echoError("Access to class '" + className + "' is denied by the DenizenReflect security configuration.");
@@ -447,11 +447,10 @@ public class ReflectionHandler {
 
     public static Class<?> getClassSilent(String className) {
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = Class.forName(className, true, LibraryLoader.getClassLoader());
             return isClassAllowed(clazz) ? clazz : null;
         } catch (ClassNotFoundException e) {
             return null;
         }
     }
-
 }
