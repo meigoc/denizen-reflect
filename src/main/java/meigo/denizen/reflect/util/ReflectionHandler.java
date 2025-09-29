@@ -2,6 +2,8 @@ package meigo.denizen.reflect.util;
 
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
+import com.denizenscript.denizencore.objects.core.ListTag;
+import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
@@ -12,6 +14,8 @@ import java.lang.reflect.*;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class ReflectionHandler {
@@ -48,6 +52,67 @@ public class ReflectionHandler {
         String className = clazz.getName();
         return DenizenReflect.allowedPackages.stream().anyMatch(className::startsWith);
     }
+
+
+    public static ElementTag getClass(String s) {
+
+        int open = s.indexOf('(');
+
+        String before = open != -1 ? s.substring(0, open) : s;
+
+        return new ElementTag(before);
+    }
+
+    public static ListTag getConstructorArgs(String string) {
+
+        int open = string.indexOf('(');
+        int close = string.lastIndexOf(')');
+
+        String inside = (open != -1 && close > open) ? string.substring(open + 1, close) : "";
+
+        List<String> elements = new ArrayList<>();
+        Matcher m = Pattern.compile("(?:<[^<>]*>|\\[[^\\[\\]]*\\]|[^,])+").matcher(inside);
+
+        while (m.find()) {
+            elements.add(m.group().trim());
+        }
+
+        String argsList = elements.isEmpty() ? "" : String.join("|", elements);
+        return new ListTag(String.join("|", argsList));
+    }
+
+    public static JavaObjectTag importClass(ElementTag className, ScriptEntry scriptEntry) {
+        ListTag inside = new ListTag(className.toString().matches(".*\\(.*\\).*") ? className.toString().replaceAll(".*\\(([^)]*)\\).*", "$1") : "");
+        return importClass(className, inside, scriptEntry);
+    }
+    public static JavaObjectTag importClass(ElementTag className, ListTag constructorArgsList, ScriptEntry scriptEntry) {
+
+        className = getClass(className.toString());
+
+        JavaObjectTag resultObject = null;
+
+        if (constructorArgsList == null || constructorArgsList.isEmpty()) {
+            // Case 1: no constructor argument, return static reference to class
+            Class<?> staticClass = ReflectionHandler.getClass(className.asString(), scriptEntry.getContext());
+            if (staticClass != null) {
+                resultObject = new JavaObjectTag(staticClass);
+            }
+        }
+        else {
+            // Case 2: constructor present, create new instance
+            List<ObjectTag> params = new ArrayList<>();
+            params = constructorArgsList.stream()
+                    .map(argStr -> ArgumentParamParser.parse(argStr, scriptEntry.getContext()))
+                    .collect(Collectors.toList());
+            Object newInstance = ReflectionHandler.construct(className.asString(), params, scriptEntry.getContext());
+            if (newInstance != null) {
+                resultObject = new JavaObjectTag(newInstance);
+            }
+        }
+
+        return resultObject;
+    }
+
 
     public static Class<?> getClass(String className, TagContext context) {
         try {

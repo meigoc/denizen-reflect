@@ -29,7 +29,7 @@ public class LibraryLoader {
         @Override
         public FileVisitResult visitFile(@NotNull Path file, @NotNull BasicFileAttributes attrs) throws IOException {
             if (MATCHER.matches(file)) {
-                Debug.log("Loaded external library " + file.getFileName());
+                Debug.log("DenizenReflect", "Loaded external library " + file.getFileName());
                 urls.add(file.toUri().toURL());
             }
             return super.visitFile(file, attrs);

@@ -17,7 +17,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class DenizenReflect extends JavaPlugin {
@@ -60,23 +60,27 @@ public class DenizenReflect extends JavaPlugin {
         return newJavaTag;
     }
 
+    private static JavaObjectTag handleImportTag(Attribute attribute, ObjectTag object) {
+        return ReflectionHandler.importClass(attribute.getParamElement(), attribute.getScriptEntry());
+    }
+
     private void injectGlobalTags() {
-        int injectedCount = 0;
         for (ObjectType<? extends ObjectTag> type : ObjectFetcher.objectsByClass.values()) {
             ObjectTagProcessor<?> processor = type.tagProcessor;
             if (processor != null) {
+                if (type.toString().equals("UtilTagBase")) {
+                    processor.registerTag(ObjectTag.class, "import", DenizenReflect::handleImportTag);
+                }
                 processor.registerTag(ObjectTag.class, "invoke", DenizenReflect::handleInvokeTag);
                 processor.registerTag(JavaObjectTag.class, "identify", DenizenReflect::handleIdentifyTag);
-                injectedCount++;
             }
         }
-        Debug.log("Injected global tags into " + injectedCount + " object types.");
     }
 
     @Override
     public void onEnable() {
         instance = this;
-        Debug.log("Loading DenizenReflect...");
+        Debug.log("Loading DenizenReflect..");
         saveDefaultConfig();
 
         allowedPackages = getConfig().getStringList("security.allowed-packages").stream()

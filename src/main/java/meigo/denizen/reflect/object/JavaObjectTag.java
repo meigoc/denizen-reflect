@@ -38,6 +38,10 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
         startCleanupTask();
     }
 
+    public Class<?> getClazz() {
+        return this.isStatic ? (Class<?>) this.heldObject : this.heldObject.getClass();
+    }
+
     private static void startCleanupTask() {
         if (cleanupExecutor == null) {
             cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {

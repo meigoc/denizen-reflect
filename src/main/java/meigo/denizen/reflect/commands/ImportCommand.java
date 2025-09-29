@@ -2,19 +2,12 @@ package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
 import com.denizenscript.denizencore.objects.Argument;
-import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
-import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.object.JavaObjectTag;
-import meigo.denizen.reflect.util.ArgumentParamParser;
 import meigo.denizen.reflect.util.ReflectionHandler;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public class ImportCommand extends AbstractCommand {
 
@@ -81,47 +74,15 @@ public class ImportCommand extends AbstractCommand {
 
     @Override
     public void execute(ScriptEntry scriptEntry) {
-        ElementTag className = scriptEntry.getElement("class_name");
-        ListTag constructorArgsList = scriptEntry.argForPrefix("constructor", ListTag.class, true);
-        ElementTag defName = scriptEntry.argForPrefixAsElement("as", null);
-
-        boolean constructorPresent = scriptEntry.argForPrefix("constructor") != null;
-
-        if (scriptEntry.dbCallShouldDebug()) {
-            Debug.report(scriptEntry, getName(),
-                    className.debuggable(),
-                    constructorPresent ? (constructorArgsList != null ? constructorArgsList.debuggable() : "constructor (no args)") : "",
-                    (defName != null ? defName.debuggable() : ""));
-        }
-
-        JavaObjectTag resultObject = null;
-
-        if (!constructorPresent) {
-            // Case 1: no constructor argument, return static reference to class
-            Class<?> staticClass = ReflectionHandler.getClass(className.asString(), scriptEntry.getContext());
-            if (staticClass != null) {
-                resultObject = new JavaObjectTag(staticClass);
-            }
-        }
-        else {
-            // Case 2: constructor present, create new instance
-            List<ObjectTag> params = new ArrayList<>();
-            if (constructorArgsList != null) {
-                params = constructorArgsList.stream()
-                        .map(argStr -> ArgumentParamParser.parse(argStr, scriptEntry.getContext()))
-                        .collect(Collectors.toList());
-            }
-            Object newInstance = ReflectionHandler.construct(className.asString(), params, scriptEntry.getContext());
-            if (newInstance != null) {
-                resultObject = new JavaObjectTag(newInstance);
-            }
-        }
+        JavaObjectTag resultObject = ReflectionHandler.importClass(
+                scriptEntry.getElement("class_name"),
+                scriptEntry.argForPrefix("constructor", ListTag.class, true),
+                scriptEntry
+        );
 
         if (resultObject != null) {
-            scriptEntry.addObject("created_object", resultObject);
-            if (defName != null) {
-                scriptEntry.getResidingQueue().addDefinition(defName.asString(), resultObject);
-            }
+            ElementTag defName = scriptEntry.argForPrefixAsElement("as", resultObject.getClazz().getSimpleName());
+            scriptEntry.getResidingQueue().addDefinition(defName.asString(), resultObject);
         }
     }
 }
