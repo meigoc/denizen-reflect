@@ -3,9 +3,8 @@ package meigo.denizen.reflect;
 import com.denizenscript.denizencore.DenizenCore;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.objects.ObjectTag;
-import com.denizenscript.denizencore.objects.ObjectType;
 import com.denizenscript.denizencore.tags.Attribute;
-import com.denizenscript.denizencore.tags.ObjectTagProcessor;
+import com.denizenscript.denizencore.tags.core.UtilTagBase;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.commands.ImportCommand;
 import meigo.denizen.reflect.commands.InvokeCommand;
@@ -64,19 +63,6 @@ public class DenizenReflect extends JavaPlugin {
         return ReflectionHandler.importClass(attribute.getParamElement(), attribute.getScriptEntry());
     }
 
-    private void injectGlobalTags() {
-        for (ObjectType<? extends ObjectTag> type : ObjectFetcher.objectsByClass.values()) {
-            ObjectTagProcessor<?> processor = type.tagProcessor;
-            if (processor != null) {
-                if (type.toString().equals("UtilTagBase")) {
-                    processor.registerTag(ObjectTag.class, "import", DenizenReflect::handleImportTag);
-                }
-                processor.registerTag(ObjectTag.class, "invoke", DenizenReflect::handleInvokeTag);
-                processor.registerTag(JavaObjectTag.class, "identify", DenizenReflect::handleIdentifyTag);
-            }
-        }
-    }
-
     @Override
     public void onEnable() {
         instance = this;
@@ -106,7 +92,11 @@ public class DenizenReflect extends JavaPlugin {
             ObjectFetcher.registerWithObjectFetcher(JavaObjectTag.class, JavaObjectTag.tagProcessor);
             DenizenCore.commandRegistry.registerCommand(ImportCommand.class);
             DenizenCore.commandRegistry.registerCommand(InvokeCommand.class);
-            injectGlobalTags();
+            ObjectFetcher.getType(UtilTagBase.class).tagProcessor.registerTag(ObjectTag.class, "import", DenizenReflect::handleImportTag);
+            ObjectFetcher.objectsByClass.values().forEach(object -> {
+                object.tagProcessor.registerTag(ObjectTag.class, "invoke", DenizenReflect::handleInvokeTag);
+                object.tagProcessor.registerTag(JavaObjectTag.class, "identify", DenizenReflect::handleIdentifyTag);
+            });
         }
         catch (Throwable e) {
             Debug.echoError("Failed to register DenizenReflect components!");
