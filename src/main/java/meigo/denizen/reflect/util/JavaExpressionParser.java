@@ -169,7 +169,15 @@ public class JavaExpressionParser {
             List<ObjectTag> arguments = new ArrayList<>();
             for (Expression paramExpr : n.getArguments()) {
                 Object paramValue = paramExpr.accept(this, arg);
-                arguments.add(CoreUtilities.objectToTagForm(paramValue, context, false, false, true));
+                ObjectTag denizenArg;
+                if (paramValue instanceof ObjectTag) {
+                    denizenArg = (ObjectTag) paramValue;
+                } else if (paramValue == null || paramValue instanceof String || paramValue instanceof Number || paramValue instanceof Boolean) {
+                    denizenArg = CoreUtilities.objectToTagForm(paramValue, context, false, false, true);
+                } else {
+                    denizenArg = new JavaObjectTag(paramValue);
+                }
+                arguments.add(denizenArg);
             }
             if (scope instanceof Class) {
                 return ReflectionHandler.invokeStaticMethod((Class<?>) scope, n.getNameAsString(), arguments, context);
