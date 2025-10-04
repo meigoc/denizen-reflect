@@ -63,7 +63,6 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
     private static void cleanupExpiredInstances() {
         long currentTime = System.currentTimeMillis();
         long expiryThreshold = currentTime - TimeUnit.MINUTES.toMillis(EXPIRY_TIME_MINUTES);
-        int cleanedCount = 0;
 
         Iterator<Map.Entry<UUID, Long>> iterator = lastAccessTimes.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -72,12 +71,7 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
                 UUID expiredUUID = entry.getKey();
                 iterator.remove();
                 persistedInstances.remove(expiredUUID);
-                cleanedCount++;
             }
-        }
-
-        if (cleanedCount > 0) {
-            //Debug.log("Cleaned up " + cleanedCount + " expired JavaObjectTag instances");
         }
     }
 
@@ -192,8 +186,6 @@ public class JavaObjectTag implements ObjectTag, Adjustable {
             object.updateAccessTime();
             return CoreUtilities.objectToTagForm(object.heldObject, attribute.context);
         });
-        //tagProcessor.registerTag(ElementTag.class, "identify", (attribute, object) -> new ElementTag(object.identify()));
-        tagProcessor.registerTag(ElementTag.class, "debug", (attribute, object) -> new ElementTag(object.debuggable()));
         tagProcessor.registerMechanism("set_field", false, MapTag.class, (object, mechanism, map) -> {
             for (Map.Entry<StringHolder, ObjectTag> entry : map.entrySet()) {
                 if (object.isStatic) {

@@ -8,6 +8,8 @@ import com.denizenscript.denizencore.tags.core.UtilTagBase;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.commands.ImportCommand;
 import meigo.denizen.reflect.commands.InvokeCommand;
+import meigo.denizen.reflect.commands.ProxyCommand;
+import meigo.denizen.reflect.commands.SectionCommand;
 import meigo.denizen.reflect.object.JavaObjectTag;
 import meigo.denizen.reflect.util.JavaExpressionParser;
 import meigo.denizen.reflect.util.LibraryLoader;
@@ -92,6 +94,8 @@ public class DenizenReflect extends JavaPlugin {
             ObjectFetcher.registerWithObjectFetcher(JavaObjectTag.class, JavaObjectTag.tagProcessor);
             DenizenCore.commandRegistry.registerCommand(ImportCommand.class);
             DenizenCore.commandRegistry.registerCommand(InvokeCommand.class);
+            DenizenCore.commandRegistry.registerCommand(SectionCommand.class);
+            DenizenCore.commandRegistry.registerCommand(ProxyCommand.class);
             ObjectFetcher.getType(UtilTagBase.class).tagProcessor.registerTag(ObjectTag.class, "import", DenizenReflect::handleImportTag);
             ObjectFetcher.objectsByClass.values().forEach(object -> {
                 object.tagProcessor.registerTag(ObjectTag.class, "invoke", DenizenReflect::handleInvokeTag);

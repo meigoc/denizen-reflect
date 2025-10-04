@@ -14,8 +14,6 @@ import java.lang.reflect.*;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class ReflectionHandler {
@@ -63,28 +61,11 @@ public class ReflectionHandler {
         return new ElementTag(before);
     }
 
-    public static ListTag getConstructorArgs(String string) {
-
-        int open = string.indexOf('(');
-        int close = string.lastIndexOf(')');
-
-        String inside = (open != -1 && close > open) ? string.substring(open + 1, close) : "";
-
-        List<String> elements = new ArrayList<>();
-        Matcher m = Pattern.compile("(?:<[^<>]*>|\\[[^\\[\\]]*\\]|[^,])+").matcher(inside);
-
-        while (m.find()) {
-            elements.add(m.group().trim());
-        }
-
-        String argsList = elements.isEmpty() ? "" : String.join("|", elements);
-        return new ListTag(String.join("|", argsList));
-    }
-
     public static JavaObjectTag importClass(ElementTag className, ScriptEntry scriptEntry) {
         ListTag inside = new ListTag(className.toString().matches(".*\\(.*\\).*") ? className.toString().replaceAll(".*\\(([^)]*)\\).*", "$1") : "");
         return importClass(className, inside, scriptEntry);
     }
+
     public static JavaObjectTag importClass(ElementTag className, ListTag constructorArgsList, ScriptEntry scriptEntry) {
 
         className = getClass(className.toString());
@@ -206,7 +187,7 @@ public class ReflectionHandler {
         }
     }
 
-    private static Object convertDenizenToJava(Class<?> javaParam, ObjectTag denizenParam) {
+    static Object convertDenizenToJava(Class<?> javaParam, ObjectTag denizenParam) {
         if (denizenParam == null) return null;
 
         if (denizenParam instanceof JavaObjectTag) {
