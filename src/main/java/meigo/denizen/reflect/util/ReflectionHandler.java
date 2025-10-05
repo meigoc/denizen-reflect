@@ -445,7 +445,13 @@ public class ReflectionHandler {
             field.setAccessible(true);
             return field.get(instance);
         } catch (NoSuchFieldException e) {
-            Debug.echoError(context, "Could not find a public field named '" + fieldName + "' in class '" + clazz.getName() + "'.");
+            try {
+                Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.get(instance);
+            } catch (Exception ex) {
+                Debug.echoError(context, "Could not find a public field named '" + fieldName + "' in class '" + clazz.getName() + "'.");
+            }
         } catch (Exception e) {
             Debug.echoError(context, "Error reading field '" + fieldName + "':");
             Debug.echoError(e);
