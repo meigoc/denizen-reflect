@@ -8,7 +8,6 @@ import meigo.denizen.reflect.util.JavaExpressionEngine;
 
 public class InvokeCommand extends AbstractCommand {
 
-    // @Plugin denizen-reflect
     public InvokeCommand() {
         setName("invoke");
         setSyntax("invoke [<java_expression>]");

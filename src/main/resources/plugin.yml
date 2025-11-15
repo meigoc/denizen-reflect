@@ -1,7 +1,7 @@
 name: denizen-reflect
 author: meigoc
-authors: ['gleb_petrovich (github.com/meigoc)', 'isnsest (github.com/meigoc)']
-contributors: ['gleb_petrovich (github.com/meigoc)', 'isnsest (github.com/meigoc)']
+authors: ['gleb_petrovich', 'isnsest']
+contributors: ['gleb_petrovich', 'isnsest']
 version: ${version}
 main: meigo.denizen.reflect.DenizenReflect
 description: Allows Denizen scripts to directly interact with and manipulate Java objects.

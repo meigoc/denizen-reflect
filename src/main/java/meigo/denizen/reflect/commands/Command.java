@@ -44,6 +44,9 @@ public class Command extends AbstractCommand {
     // Use to create custom command '- role <player> police'
     // - command create role with:player|role
     //
+    // @Usage
+    // Use to create custom command '- emote <player> type:<type>'
+    // - command create emote with:player|#type
     // -->
 
     public static void autoExecute(ScriptEntry scriptEntry,
