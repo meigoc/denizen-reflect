@@ -1,13 +1,2 @@
-security:
-  # A list of Java packages that scripts are allowed to access via reflection.
-  # IMPORTANT: Only add packages you trust. Granting access to sensitive packages
-  # (like 'java.io' or 'java.net') can create severe security vulnerabilities on your server.
-  # Each entry MUST end with a dot (.).
-  allowed-packages:
-    - "org."
-    - "java."
-    - "io."
-    - "com."
-    - "meigo."
-    - "net."
-    - "dev."
+experimental:
+  invoke-in-commands: false # (Need restart) // - define player_name %player.getName()%

@@ -48,7 +48,6 @@ repositories {
 dependencies {
     implementation("io.papermc.paper:paper-api:${project.properties["craftbukkit.version"]}")
     implementation("com.denizenscript:denizen:${project.properties["denizen.version"]}")
-    implementation("com.github.javaparser:javaparser-core:3.25.10")
 }
 
 val buildNumber: String = System.getenv("BUILD_NUMBER") ?: project.property("BUILD_NUMBER") as String

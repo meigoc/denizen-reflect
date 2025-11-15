@@ -1,68 +1,83 @@
 package meigo.denizen.reflect;
 
 import com.denizenscript.denizencore.DenizenCore;
+import com.denizenscript.denizencore.events.ScriptEvent;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.objects.ObjectTag;
-import com.denizenscript.denizencore.tags.Attribute;
-import com.denizenscript.denizencore.tags.core.UtilTagBase;
+import com.denizenscript.denizencore.tags.TagManager;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
-import meigo.denizen.reflect.commands.ImportCommand;
-import meigo.denizen.reflect.commands.InvokeCommand;
-import meigo.denizen.reflect.commands.ProxyCommand;
-import meigo.denizen.reflect.commands.SectionCommand;
-import meigo.denizen.reflect.object.JavaObjectTag;
-import meigo.denizen.reflect.util.JavaExpressionParser;
-import meigo.denizen.reflect.util.LibraryLoader;
-import meigo.denizen.reflect.util.ReflectionHandler;
+import meigo.denizen.reflect.commands.*;
+import meigo.denizen.reflect.events.CustomCommandEvent;
+import meigo.denizen.reflect.events.CustomTagEvent;
+import meigo.denizen.reflect.util.*;
+import org.bukkit.Bukkit;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.stream.Collectors;
 
 public class DenizenReflect extends JavaPlugin {
 
     public static DenizenReflect instance;
-    public static List<String> allowedPackages;
+    private static final String ANSI_BRIGHT_RED = "\u001B[91m";
+    private static final String ANSI_RESET = "\u001B[0m";
 
-    private static ObjectTag handleInvokeTag(Attribute attribute, ObjectTag object) {
-        String expression = attribute.getParam();
-        if (expression == null || expression.isEmpty()) {
-            Debug.echoError(attribute.context, "The invoke[] tag requires a Java expression.");
-            return null;
-        }
-        try {
-            if (object instanceof JavaObjectTag) {
-                ((JavaObjectTag) object).updateAccessTime();
+
+
+    public static void send(String tag, String msg) {
+        ConsoleCommandSender console = Bukkit.getServer().getConsoleSender();
+        String coloredTag = ANSI_BRIGHT_RED + "+> [" + tag + "]" + ANSI_RESET;
+        String out = coloredTag + " " + msg;
+        console.sendRawMessage(out);
+    }
+
+    private static void run() {
+        int lastSize = -1;
+        int stableIterations = 0;
+        final String pluginName = "[]";
+
+        while (true) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
-            Object javaObject = object.getJavaObject();
-            if (javaObject == null) {
-                Debug.echoError(attribute.context, "Cannot invoke on a null object.");
-                return null;
+
+            int currentSize;
+            try {
+                currentSize = ObjectFetcher.objectsByPrefix.size();
+            } catch (Exception e) {
+                System.out.println(pluginName + " Error accessing objectByPrefix: " + e.getMessage());
+                break;
             }
-            JavaExpressionParser parser = new JavaExpressionParser(attribute.context);
-            Object result = parser.execute(expression, javaObject);
-            return ReflectionHandler.wrapObject(result, attribute.context);
-        }
-        catch (Exception e) {
-            Debug.echoError(attribute.context, "Error within invoke[] tag: " + e.getMessage());
-            return null;
+
+            if (currentSize == lastSize) {
+                stableIterations++;
+            } else {
+                stableIterations = 0;
+                lastSize = currentSize;
+            }
+
+            if (currentSize > 0 && stableIterations >= 3) {
+                send("denizen-reflect", "Import-syntax support enabled.");
+
+                try {
+                    ImportManager.registerEventHooks();
+                } catch (Exception e) {
+                    System.out.println(pluginName + " CRITICAL ERROR while running registerEventHooks from async thread!");
+                    e.printStackTrace();
+                }
+
+                break;
+            }
         }
     }
 
-    private static JavaObjectTag handleIdentifyTag(Attribute attribute, ObjectTag object) {
-        if (object instanceof JavaObjectTag) {
-            attribute.echoError("Cannot re-identify an object that is already a JavaObjectTag.");
-            return null;
-        }
-        JavaObjectTag newJavaTag = new JavaObjectTag(object.getJavaObject());
-        newJavaTag.persist();
-        return newJavaTag;
-    }
-
-    private static JavaObjectTag handleImportTag(Attribute attribute, ObjectTag object) {
-        return ReflectionHandler.importClass(attribute.getParamElement(), attribute.getScriptEntry());
+    @Override
+    public void onLoad() {
+        new Thread(DenizenReflect::run).start();
     }
 
     @Override
@@ -71,15 +86,8 @@ public class DenizenReflect extends JavaPlugin {
         Debug.log("Loading DenizenReflect..");
         saveDefaultConfig();
 
-        allowedPackages = getConfig().getStringList("security.allowed-packages").stream()
-                .map(p -> p.endsWith(".") ? p : p + ".")
-                .collect(Collectors.toList());
-
-        if (allowedPackages.isEmpty()) {
-            Debug.echoError("Security warning: No packages are whitelisted in config.yml.");
-        }
-        else {
-            Debug.log("Allowed packages: " + String.join(", ", allowedPackages));
+        if (getConfig().getBoolean("experimental.invoke-in-commands")) {
+            CommandWrapperUtil.interceptAll(DenizenCore.commandRegistry.instances);
         }
 
         try {
@@ -91,16 +99,32 @@ public class DenizenReflect extends JavaPlugin {
         }
 
         try {
-            ObjectFetcher.registerWithObjectFetcher(JavaObjectTag.class, JavaObjectTag.tagProcessor);
-            DenizenCore.commandRegistry.registerCommand(ImportCommand.class);
             DenizenCore.commandRegistry.registerCommand(InvokeCommand.class);
+            DenizenCore.commandRegistry.registerCommand(TagCommand.class);
+            DenizenCore.commandRegistry.registerCommand(Command.class);
+            DenizenCore.commandRegistry.registerCommand(EventCommand.class);
             DenizenCore.commandRegistry.registerCommand(SectionCommand.class);
             DenizenCore.commandRegistry.registerCommand(ProxyCommand.class);
-            ObjectFetcher.getType(UtilTagBase.class).tagProcessor.registerTag(ObjectTag.class, "import", DenizenReflect::handleImportTag);
-            ObjectFetcher.objectsByClass.values().forEach(object -> {
-                object.tagProcessor.registerTag(ObjectTag.class, "invoke", DenizenReflect::handleInvokeTag);
-                object.tagProcessor.registerTag(JavaObjectTag.class, "identify", DenizenReflect::handleIdentifyTag);
+
+            //
+
+            ScriptEvent.registerScriptEvent(CustomTagEvent.class);
+            ScriptEvent.registerScriptEvent(CustomCommandEvent.class);
+
+            // <--[tag]
+            // @attribute <invoke[<java_expression>]>
+            // @returns ObjectTag
+            // @description
+            // Calls java code and returns result.
+            // -->
+            TagManager.registerTagHandler(ObjectTag.class, "invoke", (attribute) -> {
+                    String path = attribute.getScriptEntry().getScript().getContainer().getRelativeFileName();
+                    path = path.substring(path.indexOf("scripts/") + "scripts/".length());
+                    String result = JavaExpressionEngine.execute(attribute.getParam(), attribute.getScriptEntry(), path).toString();
+                    return ObjectFetcher.pickObjectFor(result, attribute.context);
             });
+
+
         }
         catch (Throwable e) {
             Debug.echoError("Failed to register DenizenReflect components!");
@@ -108,5 +132,10 @@ public class DenizenReflect extends JavaPlugin {
         }
 
         Debug.log("DenizenReflect loaded successfully!");
+        ImportManager._import();
+    }
+
+    @Override
+    public void onDisable() {
     }
 }

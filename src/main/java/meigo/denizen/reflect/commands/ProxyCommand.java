@@ -4,6 +4,7 @@ import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
 import com.denizenscript.denizencore.objects.Argument;
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
+import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
 import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.objects.core.MapTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
@@ -15,17 +16,34 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import meigo.denizen.reflect.object.JavaObjectTag;
 import meigo.denizen.reflect.util.DenizenProxyHandler;
 import meigo.denizen.reflect.util.LibraryLoader;
 
 public class ProxyCommand extends AbstractCommand {
+
     public ProxyCommand() {
         this.setName("proxy");
         this.setSyntax("proxy [<interfaces>|...] [using:<handler_map>/<section_name>/<task_script>] [as:<name>]");
         this.setRequiredArguments(2, 3);
         this.isProcedural = false;
     }
+
+    // <--[command]
+    // @Plugin denizen-reflect
+    // @Name proxy
+    // @Syntax proxy [<interfaces>|...] [using:<map>] [as:<name>]
+    // @Required 2
+    // @Maximum 3
+    // @Short
+    // @Group denizen-reflect
+    //
+    // @Description
+    // Creates proxy.
+    //
+    // @Usage
+    // Use to create proxy of Runnable.
+    // - proxy java.lang.Runnable using:[run=task]g
+    // -->
 
     public void parseArgs(ScriptEntry scriptEntry) throws InvalidArgumentsException {
         ArgumentIterator var2 = scriptEntry.iterator();
@@ -83,7 +101,7 @@ public class ProxyCommand extends AbstractCommand {
 
             while(var8.hasNext()) {
                 String interfaceName = (String)var8.next();
-                Class<?> ifaceClass = DenizenProxyHandler.getClassForName(interfaceName, scriptEntry.getContext());
+                Class<?> ifaceClass = DenizenProxyHandler.getClassForName(interfaceName, scriptEntry);
                 if (ifaceClass == null) {
                     Debug.echoError(scriptEntry, "Interface class not found: " + interfaceName);
                     return;
@@ -105,7 +123,7 @@ public class ProxyCommand extends AbstractCommand {
             }
 
             Object proxy = Proxy.newProxyInstance(LibraryLoader.getClassLoader(), (Class[])interfaceClasses.toArray(new Class[0]), handler);
-            JavaObjectTag proxyObject = new JavaObjectTag(proxy);
+            JavaReflectedObjectTag proxyObject = new JavaReflectedObjectTag(proxy);
             proxyObject.persist();
             if (asName != null) {
                 scriptEntry.getResidingQueue().addDefinition(asName.asString(), proxyObject);

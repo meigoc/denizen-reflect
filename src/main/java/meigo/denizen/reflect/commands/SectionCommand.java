@@ -1,61 +1,86 @@
 package meigo.denizen.reflect.commands;
 
-import com.denizenscript.denizencore.objects.core.ElementTag;
-import com.denizenscript.denizencore.objects.core.ListTag;
+import com.denizenscript.denizencore.objects.ObjectTag;
+import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
 import com.denizenscript.denizencore.objects.core.MapTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
-import com.denizenscript.denizencore.scripts.commands.BracedCommand;
+import com.denizenscript.denizencore.scripts.ScriptEntryData;
+import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
+import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
+import com.denizenscript.denizencore.scripts.queues.ContextSource;
 import com.denizenscript.denizencore.scripts.queues.ScriptQueue;
-import com.denizenscript.denizencore.utilities.debugging.Debug;
-import meigo.denizen.reflect.object.ScriptEntryListTag;
+import com.denizenscript.denizencore.scripts.commands.BracedCommand;
+import com.denizenscript.denizencore.utilities.ScriptUtilities;
+import com.denizenscript.denizencore.utilities.text.StringHolder;
 
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Consumer;
 
 public class SectionCommand extends BracedCommand {
 
+
     public SectionCommand() {
-        this.setName("section");
-        this.setSyntax("section as:<id> (def:<name>|...) [<commands>]");
-        this.setRequiredArguments(1, -1);
-        this.setPrefixesHandled("as", "def");
+        setName("section");
+        setSyntax("section [as:<name>]");
+        setRequiredArguments(1, 1);
+        isProcedural = false;
+        autoCompile();
     }
 
-    @Override
-    public void execute(ScriptEntry scriptEntry) {
-        ElementTag id = scriptEntry.argForPrefixAsElement("as", null);
-        ListTag defNames = scriptEntry.argForPrefix("def", ListTag.class, false);
+    // <--[command]
+    // @Plugin denizen-reflect
+    // @Name section
+    // @Syntax section [as:<name>]
+    // @Required 1
+    // @Short
+    // @Group denizen-reflect
+    //
+    // @Description
+    // A group of commands inside.
+    //
+    // @Usage
+    // - section:
+    //     - narrate 123
+    // -->
 
-        if (id == null) {
-            Debug.echoError(scriptEntry, "Must specify an ID with 'as:' prefix for the section!");
-            return;
+    public static class Section {
+        public List<ScriptEntry> directEntries;
+        public ContextSource contextSource;
+        public String queueId;
+        public ScriptEntryData entryData;
+        public MapTag defMap;
+
+        @SuppressWarnings("unused")
+        public void run() {
+
+            Consumer<ScriptQueue> configure = (queue) -> {
+                if (this.defMap != null) {
+                    for (Map.Entry<StringHolder, ObjectTag> val : defMap.entrySet()) {
+                        queue.addDefinition(val.getKey().str, val.getValue());
+                    }
+                }
+            };
+
+            ScriptUtilities.createAndStartQueueArbitrary(queueId, directEntries, entryData, contextSource, configure);
+
         }
 
-        String idString = id.asString().toLowerCase();
+    }
 
-        List<ScriptEntry> entries = getBracedCommandsDirect(scriptEntry, scriptEntry);
+    @SuppressWarnings("unused")
+    public static void autoExecute(ScriptEntry scriptEntry,
+                                   @ArgName("as") @ArgPrefixed String define) {
+        UUID id = UUID.randomUUID();
 
-        if (entries == null || entries.isEmpty()) {
-            Debug.echoError(scriptEntry, "Cannot define an empty section. Braces must contain commands.");
-            return;
-        }
+        Section section = new Section();
+        section.directEntries = getBracedCommandsDirect(scriptEntry, scriptEntry);
+        section.queueId = "SECTION_" + scriptEntry.getScript().getContainer().getName();
+        section.entryData = scriptEntry.entryData;
+        section.contextSource = scriptEntry.context.contextSource;
+        section.defMap = scriptEntry.queue.definitions.duplicate();
 
-        ScriptEntryListTag commandList = new ScriptEntryListTag(entries);
-
-        if (scriptEntry.dbCallShouldDebug()) {
-            Debug.report(scriptEntry, this.getName(), id, defNames, db("entries", entries.size()));
-        }
-
-        MapTag sectionData = new MapTag();
-        sectionData.putObject("commands", commandList);
-        if (defNames != null) {
-            sectionData.putObject("definitions", defNames);
-        }
-
-        ScriptQueue queue = scriptEntry.getResidingQueue();
-        if (queue != null) {
-            queue.addDefinition(idString, sectionData);
-        } else {
-            Debug.echoError(scriptEntry, "ScriptEntry does not belong to a queue. Cannot save section.");
-        }
+        scriptEntry.getResidingQueue().addDefinition(define, new JavaReflectedObjectTag(section));
     }
 }
