@@ -22,15 +22,16 @@ public class InvokeCommand extends AbstractCommand {
     // @Syntax invoke [<java_expression>]
     // @Required 1
     // @Maximum 1
-    // @Short
+    // @Short Calls Java code.
     // @Group denizen-reflect
     //
     // @Description
-    // Calls java code.
+    // Executes a Java string: methods, fields, private methods and fields, constructors, ..
     //
     // @Usage
     // Use to change player health.
     // - invoke player.setHealth(0)
+    //
     // -->
 
     @SuppressWarnings("unused")

@@ -34,11 +34,11 @@ public class ProxyCommand extends AbstractCommand {
     // @Syntax proxy [<interfaces>|...] [using:<map>] [as:<name>]
     // @Required 2
     // @Maximum 3
-    // @Short
+    // @Short Creates a proxy for given interfaces.
     // @Group denizen-reflect
     //
     // @Description
-    // Creates proxy.
+    // Creates a new proxy object using the specified interfaces.
     //
     // @Usage
     // Use to create proxy of Runnable.

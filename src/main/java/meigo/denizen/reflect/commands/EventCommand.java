@@ -25,7 +25,7 @@ public class EventCommand extends AbstractCommand {
     // @Syntax event [rename] [<event_name>] [to:<new_event_name>]
     // @Required 3
     // @Maximum 3
-    // @Short
+    // @Short Event manager.
     // @Group denizen-reflect
     //
     // @Description

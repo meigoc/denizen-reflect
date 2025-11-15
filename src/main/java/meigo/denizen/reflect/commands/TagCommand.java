@@ -27,7 +27,7 @@ public class TagCommand extends AbstractCommand {
     // @Syntax tag [create/delete] [<tag_name>] (static:true/false) (in:<object_name>)
     // @Required 2
     // @Maximum 4
-    // @Short
+    // @Short Tag manager.
     // @Group denizen-reflect
     //
     // @Description

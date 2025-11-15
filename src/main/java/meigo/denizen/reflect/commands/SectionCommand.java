@@ -33,7 +33,7 @@ public class SectionCommand extends BracedCommand {
     // @Name Section
     // @Syntax section [as:<name>]
     // @Required 1
-    // @Short
+    // @Short Section of commands.
     // @Group denizen-reflect
     //
     // @Description
