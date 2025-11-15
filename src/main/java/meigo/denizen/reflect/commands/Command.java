@@ -34,7 +34,7 @@ public class Command extends AbstractCommand {
     // @Syntax command [create/delete/rename] [<command_name>] [with:<args>]
     // @Required 2
     // @Maximum 3
-    // @Short Creates, deletes, or renames Denizen commands at runtime.
+    // @Short Command manager.
     // @Group denizen-reflect
     //
     // @Description
