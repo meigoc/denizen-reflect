@@ -20,7 +20,7 @@ import java.util.function.Consumer;
 
 public class SectionCommand extends BracedCommand {
 
-
+    // @Plugin denizen-reflect
     public SectionCommand() {
         setName("section");
         setSyntax("section [as:<name>]");
@@ -30,8 +30,7 @@ public class SectionCommand extends BracedCommand {
     }
 
     // <--[command]
-    // @Plugin denizen-reflect
-    // @Name section
+    // @Name Section
     // @Syntax section [as:<name>]
     // @Required 1
     // @Short

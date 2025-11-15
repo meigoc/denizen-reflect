@@ -21,6 +21,7 @@ import meigo.denizen.reflect.util.LibraryLoader;
 
 public class ProxyCommand extends AbstractCommand {
 
+    // @Plugin denizen-reflect
     public ProxyCommand() {
         this.setName("proxy");
         this.setSyntax("proxy [<interfaces>|...] [using:<handler_map>/<section_name>/<task_script>] [as:<name>]");
@@ -29,8 +30,7 @@ public class ProxyCommand extends AbstractCommand {
     }
 
     // <--[command]
-    // @Plugin denizen-reflect
-    // @Name proxy
+    // @Name Proxy
     // @Syntax proxy [<interfaces>|...] [using:<map>] [as:<name>]
     // @Required 2
     // @Maximum 3

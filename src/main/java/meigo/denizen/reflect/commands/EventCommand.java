@@ -11,7 +11,7 @@ import com.denizenscript.denizencore.utilities.debugging.Debug;
 
 public class EventCommand extends AbstractCommand {
 
-
+    // @Plugin denizen-reflect
     public EventCommand() {
         setName("event");
         setSyntax("event [rename] [<event_name>] [to:<new_event_name>]");
@@ -21,8 +21,7 @@ public class EventCommand extends AbstractCommand {
     }
 
     // <--[command]
-    // @Plugin denizen-reflect
-    // @Name event
+    // @Name Event
     // @Syntax event [rename] [<event_name>] [to:<new_event_name>]
     // @Required 3
     // @Maximum 3

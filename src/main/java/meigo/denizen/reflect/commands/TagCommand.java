@@ -13,6 +13,7 @@ import meigo.denizen.reflect.events.CustomTagEvent;
 
 public class TagCommand extends AbstractCommand {
 
+    // @Plugin denizen-reflect
     public TagCommand() {
         setName("tag");
         setSyntax("tag [create/delete] [<tag_name>] (static:true/false) (in:<object_name>)");
@@ -22,8 +23,7 @@ public class TagCommand extends AbstractCommand {
     }
 
     // <--[command]
-    // @Plugin denizen-reflect
-    // @Name tag
+    // @Name Tag
     // @Syntax tag [create/delete] [<tag_name>] (static:true/false) (in:<object_name>)
     // @Required 2
     // @Maximum 4
