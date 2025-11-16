@@ -120,7 +120,7 @@ public class DenizenReflect extends JavaPlugin {
             TagManager.registerTagHandler(ObjectTag.class, "invoke", (attribute) -> {
                     String path = attribute.getScriptEntry().getScript().getContainer().getRelativeFileName();
                     path = path.substring(path.indexOf("scripts/") + "scripts/".length());
-                    String result = JavaExpressionEngine.execute(attribute.getParam(), attribute.getScriptEntry(), path).toString();
+                    String result = JavaExpressionEngine.execute(attribute.getParam(), attribute.getScriptEntry()).toString();
                     return ObjectFetcher.pickObjectFor(result, attribute.context);
             });
 

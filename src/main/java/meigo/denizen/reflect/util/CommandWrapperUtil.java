@@ -102,7 +102,7 @@ public class CommandWrapperUtil {
                                             String raw = value.toString();
                                             // парсим теги, чтобы <...> стали готовыми объектами
                                             raw = TagManager.tag(raw, scriptEntry.getContext());
-                                            Object result = JavaExpressionEngine.execute(raw, scriptEntry, path);
+                                            Object result = JavaExpressionEngine.execute(raw, scriptEntry);
                                             if (result != null) {
                                                 map.put(obj.getKey(), new ElementTag(result.toString()));
                                             }
@@ -116,7 +116,7 @@ public class CommandWrapperUtil {
                                     if (argText.contains("%")) {
 
                                         argText = TagManager.tag(argText, scriptEntry.getContext());
-                                        Object result = JavaExpressionEngine.execute(argText, scriptEntry, path);
+                                        Object result = JavaExpressionEngine.execute(argText, scriptEntry);
                                         if (result != null) {
                                             scriptEntry.internal.all_arguments[i].aHArg =
                                                     Argument.valueOf(result.toString());

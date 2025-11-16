@@ -29,6 +29,13 @@ public class CustomTagEvent extends ScriptEvent {
     // <context.raw_param> returns the ElementTag of the raw_param.
     // <context.param> returns the ObjectTag of the param.
     //
+    // @Usage
+    // - tag create shuffle in:list
+    // on custom tag id:shuffle:
+    // - determine <context.object.random[<context.object.size>]>
+    //
+    // @Determine
+    // ObjectTag to fill the tag.
     // -->
 
     public static CustomTagEvent instance;
@@ -44,7 +51,7 @@ public class CustomTagEvent extends ScriptEvent {
         instance = this;
         registerCouldMatcher("custom tag");
         registerSwitches("id", "object_type");
-        this.<CustomTagEvent, ObjectTag>registerDetermination("output", ObjectTag.class, (evt, context, output) -> evt.determination = output);
+        this.<CustomTagEvent, ObjectTag>registerDetermination(null, ObjectTag.class, (evt, context, output) -> evt.determination = output);
     }
 
     @Override

@@ -37,9 +37,7 @@ public class InvokeCommand extends AbstractCommand {
     @SuppressWarnings("unused")
     public static void autoExecute(ScriptEntry scriptEntry, @ArgName("expression") @ArgLinear String expression) {
         try {
-            String path = scriptEntry.getScript().getContainer().getRelativeFileName();
-            path = path.substring(path.indexOf("scripts/") + "scripts/".length());
-            JavaExpressionEngine.execute(expression, scriptEntry, path);
+            JavaExpressionEngine.execute(expression, scriptEntry);
         } catch (Exception e) {
             Debug.echoError(e.getLocalizedMessage());
         }

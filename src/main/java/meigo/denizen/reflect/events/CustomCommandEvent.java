@@ -5,6 +5,7 @@ import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.ScriptEntryData;
+import com.denizenscript.denizencore.utilities.debugging.Debug;
 
 public class CustomCommandEvent extends ScriptEvent {
 
@@ -24,7 +25,17 @@ public class CustomCommandEvent extends ScriptEvent {
     //
     // @Context
     // <context.id> returns the ElementTag of the id command.
+    // <context.(argument)> returns the ObjectTag of the specified argument.
     //
+    // @Usage
+    // - command create scale with:player|scale
+    // on custom command id:role:
+    // - if !<context.scale.is_integer>:
+    //     - determine "Invalid argument scale: <context.scale>"
+    // - adjust <context.player>  attribute_modifiers:[scale=<context.scale>]
+    //
+    // @Determine
+    // ElementTag to send a command execution error.
     // -->
 
     public static CustomCommandEvent instance;
@@ -38,6 +49,7 @@ public class CustomCommandEvent extends ScriptEvent {
         instance = this;
         registerCouldMatcher("custom command");
         registerSwitches("id");
+        this.<CustomCommandEvent, ObjectTag>registerDetermination(null, ObjectTag.class, (evt, context, output) -> Debug.echoError(output.toString()));
     }
 
     @Override

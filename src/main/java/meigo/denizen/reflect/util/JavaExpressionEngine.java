@@ -33,7 +33,9 @@ public final class JavaExpressionEngine {
         INSTANCE.importContexts.clear();
     }
 
-    public static Object execute(String expression, ScriptEntry scriptEntry, String path) {
+    public static Object execute(String expression, ScriptEntry scriptEntry) {
+        String path = scriptEntry.getScript().getContainer().getRelativeFileName();
+        path = path.substring(path.indexOf("scripts/") + "scripts/".length());
         try {
 
             return INSTANCE.doExecute(expression, scriptEntry, path);
