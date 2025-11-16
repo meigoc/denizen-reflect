@@ -27,13 +27,6 @@ public class CustomCommandEvent extends ScriptEvent {
     // <context.id> returns the ElementTag of the id command.
     // <context.(argument)> returns the ObjectTag of the specified argument.
     //
-    // @Usage
-    // - command create scale with:player|scale
-    // on custom command id:role:
-    // - if !<context.scale.is_integer>:
-    //     - determine "Invalid argument scale: <context.scale>"
-    // - adjust <context.player>  attribute_modifiers:[scale=<context.scale>]
-    //
     // @Determine
     // ElementTag to send a command execution error.
     // -->

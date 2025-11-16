@@ -29,11 +29,6 @@ public class CustomTagEvent extends ScriptEvent {
     // <context.raw_param> returns the ElementTag of the raw_param.
     // <context.param> returns the ObjectTag of the param.
     //
-    // @Usage
-    // - tag create shuffle in:list
-    // on custom tag id:shuffle:
-    // - determine <context.object.random[<context.object.size>]>
-    //
     // @Determine
     // ObjectTag to fill the tag.
     // -->
