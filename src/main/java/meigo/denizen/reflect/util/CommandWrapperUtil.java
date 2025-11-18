@@ -7,7 +7,6 @@ import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
 import com.denizenscript.denizencore.scripts.commands.generator.CommandExecutionGenerator;
 import com.denizenscript.denizencore.scripts.queues.ScriptQueue;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
-import com.denizenscript.denizencore.tags.TagManager;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -83,7 +82,7 @@ public class CommandWrapperUtil {
                         public void execute(ScriptEntry scriptEntry) {
                             try {
 
-                                String path = "ex_command";
+                                String path;
                                 if (scriptEntry.getScript() != null && scriptEntry.getScript().getContainer() != null) {
                                     path = scriptEntry.getScript().getContainer().getRelativeFileName();
                                     path = path.substring(path.indexOf("scripts/") + "scripts/".length());
@@ -100,8 +99,6 @@ public class CommandWrapperUtil {
                                         Object value = obj.getValue();
                                         if (value != null && value.toString().contains("%")) {
                                             String raw = value.toString();
-                                            // парсим теги, чтобы <...> стали готовыми объектами
-                                            raw = TagManager.tag(raw, scriptEntry.getContext());
                                             Object result = JavaExpressionEngine.execute(raw, scriptEntry);
                                             if (result != null) {
                                                 map.put(obj.getKey(), new ElementTag(result.toString()));
@@ -115,7 +112,6 @@ public class CommandWrapperUtil {
                                     String argText = scriptEntry.internal.all_arguments[i].aHArg.toString();
                                     if (argText.contains("%")) {
 
-                                        argText = TagManager.tag(argText, scriptEntry.getContext());
                                         Object result = JavaExpressionEngine.execute(argText, scriptEntry);
                                         if (result != null) {
                                             scriptEntry.internal.all_arguments[i].aHArg =

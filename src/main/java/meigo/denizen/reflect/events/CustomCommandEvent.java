@@ -5,7 +5,6 @@ import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.ScriptEntryData;
-import com.denizenscript.denizencore.utilities.debugging.Debug;
 
 public class CustomCommandEvent extends ScriptEvent {
 
@@ -36,13 +35,17 @@ public class CustomCommandEvent extends ScriptEvent {
     public String id;
     public ScriptEntryData entryData = null;
     public ScriptEntry scriptEntry = null;
+    public String determination = null;
+
 
 
     public CustomCommandEvent() {
         instance = this;
         registerCouldMatcher("custom command");
         registerSwitches("id");
-        this.<CustomCommandEvent, ObjectTag>registerDetermination(null, ObjectTag.class, (evt, context, output) -> Debug.echoError(output.toString()));
+        this.<CustomCommandEvent, ObjectTag>registerDetermination(null, ObjectTag.class, (evt, context, output) -> {
+            determination = output.toString();
+        });
     }
 
     @Override
@@ -67,12 +70,13 @@ public class CustomCommandEvent extends ScriptEvent {
         }
     }
 
-    public static void runCustomCommand(ScriptEntry scriptEntry, String id) {
+    public static String runCustomCommand(ScriptEntry scriptEntry, String id) {
 
         instance.id = id;
         instance.entryData = scriptEntry.entryData;
         instance.scriptEntry = scriptEntry;
 
         instance.fire();
+        return instance.determination;
     }
 }

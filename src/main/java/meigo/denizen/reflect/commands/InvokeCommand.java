@@ -26,7 +26,7 @@ public class InvokeCommand extends AbstractCommand {
     // @Group denizen-reflect
     //
     // @Description
-    // Executes a Java string: methods, fields, private methods and fields, constructors, ..
+    // Executes a Java string: methods, fields, private methods and fields, constructors, ...
     //
     // @Usage
     // Use to change player health.

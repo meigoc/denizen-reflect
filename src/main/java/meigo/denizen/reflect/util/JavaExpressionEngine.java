@@ -2,6 +2,7 @@ package meigo.denizen.reflect.util;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -890,7 +891,7 @@ public final class JavaExpressionEngine {
 
             try {
                 ObjectTag result = ObjectFetcher.pickObjectFor(name, ctx.scriptEntry.context);
-                return result;
+                return result.getJavaObject();
             }
             catch (Exception ignored3) {
             }
@@ -1134,6 +1135,14 @@ public final class JavaExpressionEngine {
             }
 
             method.setAccessible(true);
+            if (method.isDefault() && method.getDeclaringClass().isInterface()) {
+                method.setAccessible(true);
+                return method.invoke(receiver, adaptArguments(method.getParameterTypes(), args));
+            }
+
+
+
+
             MethodHandle handle = lookup.unreflect(method);
             Class<?>[] paramTypes = method.getParameterTypes();
             Object[] adapted = adaptArguments(paramTypes, args);
@@ -1207,15 +1216,29 @@ public final class JavaExpressionEngine {
         }
 
         static Method findMethodDeep(Class<?> type, String name, Object[] args) {
+
+            for (Method m : type.getMethods()) {
+                if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args)) {
+                    return m;
+                }
+            }
+
             for (Class<?> c = type; c != null; c = c.getSuperclass()) {
                 for (Method m : c.getDeclaredMethods()) {
                     if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args)) {
                         return m;
                     }
                 }
+                for (Class<?> iface : c.getInterfaces()) {
+                    Method m = findMethodDeep(iface, name, args);
+                    if (m != null) {
+                        return m;
+                    }
+                }
             }
             return null;
         }
+
 
         static Constructor<?> findConstructorDeep(Class<?> type, Object[] args) {
             for (Class<?> c = type; c != null; c = c.getSuperclass()) {

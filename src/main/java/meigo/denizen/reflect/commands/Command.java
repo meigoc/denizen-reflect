@@ -2,6 +2,7 @@ package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.DenizenCore;
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
+import com.denizenscript.denizencore.exceptions.InvalidArgumentsRuntimeException;
 import com.denizenscript.denizencore.objects.Argument;
 import com.denizenscript.denizencore.objects.ArgumentHelper;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
@@ -77,7 +78,7 @@ public class Command extends AbstractCommand {
             DenizenCore.commandRegistry.instances.remove(command_name);
             DenizenCore.commandRegistry.instances.put(with, instance);
         } else {
-            Debug.echoError("Invalid action " + action + ". Expected 'create/rename'.");
+            Debug.echoError("Invalid action " + action + ". Expected 'create/delete/rename'.");
         }
     }
 
@@ -136,7 +137,10 @@ public class Command extends AbstractCommand {
 
             @Override
             public void execute(ScriptEntry scriptEntry) {
-                CustomCommandEvent.runCustomCommand(scriptEntry, command_name);
+                String event = CustomCommandEvent.runCustomCommand(scriptEntry, command_name);
+                if (event != null) {
+                    throw new InvalidArgumentsRuntimeException(event);
+                }
             }
         };
 
