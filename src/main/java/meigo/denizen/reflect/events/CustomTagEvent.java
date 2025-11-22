@@ -18,8 +18,6 @@ public class CustomTagEvent extends ScriptEvent {
     //
     // @Group denizen-reflect
     //
-    // @Cancellable false
-    //
     // @Triggers when a custom tag is filled in.
     //
     // @Context

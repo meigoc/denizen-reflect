@@ -18,8 +18,6 @@ public class CustomCommandEvent extends ScriptEvent {
     //
     // @Group denizen-reflect
     //
-    // @Cancellable false
-    //
     // @Triggers when a custom command is executed.
     //
     // @Context
