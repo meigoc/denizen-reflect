@@ -26,11 +26,20 @@ public class InvokeCommand extends AbstractCommand {
     // @Group denizen-reflect
     //
     // @Description
-    // Executes a Java string: methods, fields, private methods and fields, constructors, ...
+    // Executes a Java string: methods, fields, private methods and fields, constructors.
     //
     // @Usage
     // Use to change player health.
     // - invoke player.setHealth(0)
+    //
+    // @Usage
+    // Use to get definition.
+    // - define health 0
+    // - invoke player.setHealth(health)
+    //
+    // @Usage
+    // Use to get context — example: <context.damager>.
+    // - invoke damager.setHealth(0)
     //
     // -->
 
