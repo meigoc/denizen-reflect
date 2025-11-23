@@ -20,7 +20,7 @@ public class PlaceholderEvent extends ScriptEvent {
     //
     // @Context
     // <context.id> returns the ElementTag of the id command.
-    // <context.params> returns the ObjectTag of the params.
+    // <context.params> returns the ElementTag of the params.
     //
     // @Determine
     // ElementTag to fill the placeholder.
