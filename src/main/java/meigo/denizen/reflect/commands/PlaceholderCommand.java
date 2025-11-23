@@ -69,7 +69,7 @@ public class PlaceholderCommand extends AbstractCommand {
                 }
                 break;
             default:
-                throw new InvalidArgumentsRuntimeException("Invalid action " + action + ". Expected 'create/delete");
+                throw new InvalidArgumentsRuntimeException("Invalid action " + action + ". Expected 'create/delete'");
         }
     }
 
