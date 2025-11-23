@@ -16,7 +16,7 @@ public class PlaceholderEvent extends ScriptEvent {
     //
     // @Group denizen-reflect
     //
-    // @Triggers when a custom command is executed.
+    // @Triggers when a custom placeholder is filled in.
     //
     // @Context
     // <context.id> returns the ElementTag of the id command.
