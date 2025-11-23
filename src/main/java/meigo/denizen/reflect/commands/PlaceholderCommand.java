@@ -7,17 +7,21 @@ import com.denizenscript.denizencore.scripts.commands.generator.ArgDefaultNull;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgLinear;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
-import me.clip.placeholderapi.PlaceholderAPIPlugin;
+import me.clip.placeholderapi.events.ExpansionsLoadedEvent;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
-import me.clip.placeholderapi.expansion.manager.LocalExpansionManager;
+import meigo.denizen.reflect.DenizenReflect;
 import meigo.denizen.reflect.events.PlaceholderEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
 import org.jetbrains.annotations.NotNull;
 
-public class PlaceholderCommand extends AbstractCommand {
+import java.util.HashMap;
 
-    public static LocalExpansionManager localExpansionManager = PlaceholderAPIPlugin.getInstance().getLocalExpansionManager();
+public class PlaceholderCommand extends AbstractCommand implements Listener {
+
+    public static HashMap<String, DExpansion> expansions = new HashMap<>();
 
     // @Plugin denizen-reflect
     public PlaceholderCommand() {
@@ -26,6 +30,7 @@ public class PlaceholderCommand extends AbstractCommand {
         setRequiredArguments(2, 4);
         isProcedural = false;
         autoCompile();
+        Bukkit.getPluginManager().registerEvents(this, DenizenReflect.getInstance());
     }
 
     // <--[command]
@@ -50,7 +55,6 @@ public class PlaceholderCommand extends AbstractCommand {
                                    @ArgName("placeholder") @ArgLinear String placeholder,
                                    @ArgName("author") @ArgPrefixed @ArgDefaultNull String author,
                                    @ArgName("version") @ArgPrefixed @ArgDefaultNull String version) {
-        if (!Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) { throw new InvalidArgumentsRuntimeException("Could not find PlaceholderAPI! This plugin is required."); }
         switch (action) {
             case "create":
                 if (author == null || version == null) { throw new InvalidArgumentsRuntimeException("Author and version cannot be null."); }
@@ -59,11 +63,12 @@ public class PlaceholderCommand extends AbstractCommand {
                 expansion.identifier = placeholder;
                 expansion.version = version;
                 expansion.register();
+                expansions.put(placeholder, expansion);
                 break;
             case "delete":
-                final PlaceholderExpansion removed = localExpansionManager.getExpansion(placeholder);
-                if (removed != null) {
-                    removed.unregister();
+                if (expansions.containsKey(placeholder)) {
+                    expansions.get(placeholder).unregister();
+                    expansions.remove(placeholder);
                 } else {
                     throw new InvalidArgumentsRuntimeException("Placeholder '" + placeholder + "' does not exist.");
                 }
@@ -73,6 +78,10 @@ public class PlaceholderCommand extends AbstractCommand {
         }
     }
 
+    @EventHandler
+    public void onPapiReload(ExpansionsLoadedEvent event) {
+        for (DExpansion expansion : expansions.values()) { expansion.register(); }
+    }
 
     public static class DExpansion extends PlaceholderExpansion {
 

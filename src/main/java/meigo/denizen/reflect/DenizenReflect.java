@@ -24,7 +24,9 @@ public class DenizenReflect extends JavaPlugin {
     private static final String ANSI_BRIGHT_RED = "\u001B[91m";
     private static final String ANSI_RESET = "\u001B[0m";
 
-
+    public static DenizenReflect getInstance() {
+        return instance;
+    }
 
     public static void send(String tag, String msg) {
         ConsoleCommandSender console = Bukkit.getServer().getConsoleSender();
@@ -100,8 +102,11 @@ public class DenizenReflect extends JavaPlugin {
         }
 
         try {
+            if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+                DenizenCore.commandRegistry.registerCommand(PlaceholderCommand.class);
+                ScriptEvent.registerScriptEvent(PlaceholderEvent.class);
+            }
             DenizenCore.commandRegistry.registerCommand(InvokeCommand.class);
-            DenizenCore.commandRegistry.registerCommand(PlaceholderCommand.class);
             DenizenCore.commandRegistry.registerCommand(TagCommand.class);
             DenizenCore.commandRegistry.registerCommand(Command.class);
             DenizenCore.commandRegistry.registerCommand(EventCommand.class);
@@ -112,7 +117,6 @@ public class DenizenReflect extends JavaPlugin {
 
             ScriptEvent.registerScriptEvent(CustomTagEvent.class);
             ScriptEvent.registerScriptEvent(CustomCommandEvent.class);
-            ScriptEvent.registerScriptEvent(PlaceholderEvent.class);
 
 
             // <--[tag]
@@ -122,8 +126,6 @@ public class DenizenReflect extends JavaPlugin {
             // Calls java code and returns result.
             // -->
             TagManager.registerTagHandler(ObjectTag.class, "invoke", (attribute) -> {
-                    String path = attribute.getScriptEntry().getScript().getContainer().getRelativeFileName();
-                    path = path.substring(path.indexOf("scripts/") + "scripts/".length());
                     String result = JavaExpressionEngine.execute(attribute.getParam(), attribute.getScriptEntry()).toString();
                     return ObjectFetcher.pickObjectFor(result, attribute.context);
             });
