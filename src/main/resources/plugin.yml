@@ -7,4 +7,5 @@ main: meigo.denizen.reflect.DenizenReflect
 description: Allows Denizen scripts to directly interact with and manipulate Java objects.
 website: https://github.com/meigoc/denizen-reflect
 depend: [Denizen]
+softdepend: [PlaceholderAPI]
 api-version: '1.21'

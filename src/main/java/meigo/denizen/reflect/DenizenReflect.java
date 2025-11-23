@@ -9,6 +9,7 @@ import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.commands.*;
 import meigo.denizen.reflect.events.CustomCommandEvent;
 import meigo.denizen.reflect.events.CustomTagEvent;
+import meigo.denizen.reflect.events.PlaceholderEvent;
 import meigo.denizen.reflect.util.*;
 import org.bukkit.Bukkit;
 import org.bukkit.command.ConsoleCommandSender;
@@ -100,6 +101,7 @@ public class DenizenReflect extends JavaPlugin {
 
         try {
             DenizenCore.commandRegistry.registerCommand(InvokeCommand.class);
+            DenizenCore.commandRegistry.registerCommand(PlaceholderCommand.class);
             DenizenCore.commandRegistry.registerCommand(TagCommand.class);
             DenizenCore.commandRegistry.registerCommand(Command.class);
             DenizenCore.commandRegistry.registerCommand(EventCommand.class);
@@ -110,6 +112,8 @@ public class DenizenReflect extends JavaPlugin {
 
             ScriptEvent.registerScriptEvent(CustomTagEvent.class);
             ScriptEvent.registerScriptEvent(CustomCommandEvent.class);
+            ScriptEvent.registerScriptEvent(PlaceholderEvent.class);
+
 
             // <--[tag]
             // @attribute <invoke[<java_expression>]>

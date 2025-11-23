@@ -21,6 +21,10 @@ repositories {
     mavenCentral()
 
     maven {
+        url = uri("https://repo.extendedclip.com/releases")
+    }
+
+    maven {
         url = uri("https://repo.papermc.io/repository/maven-public/")
     }
 
@@ -46,6 +50,7 @@ repositories {
 }
 
 dependencies {
+    implementation("me.clip:placeholderapi:2.11.7")
     implementation("io.papermc.paper:paper-api:${project.properties["craftbukkit.version"]}")
     implementation("com.denizenscript:denizen:${project.properties["denizen.version"]}")
 }
