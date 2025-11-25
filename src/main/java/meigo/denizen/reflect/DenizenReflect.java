@@ -123,7 +123,7 @@ public class DenizenReflect extends JavaPlugin {
             // @attribute <invoke[<java_expression>]>
             // @returns ObjectTag
             // @description
-            // Calls java code and returns result.
+            // Returns the result of the expression.
             // -->
             TagManager.registerTagHandler(ObjectTag.class, "invoke", (attribute) -> {
                     String result = JavaExpressionEngine.execute(attribute.getParam(), attribute.getScriptEntry()).toString();
