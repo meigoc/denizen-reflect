@@ -54,35 +54,34 @@ public class Command extends AbstractCommand {
                             @ArgName("action") @ArgLinear String action,
                             @ArgName("command_name") @ArgLinear String command_name,
                             @ArgName("with") @ArgPrefixed @ArgDefaultText("null") String with) {
-        if (action.equals("create")) {
-            create(command_name, with);
-        } else if (action.equals("delete")) {
-            if (!DenizenCore.commandRegistry.instances.containsKey(command_name)) {
-                Debug.echoError("No such command: " + command_name);
-                return;
+        switch (action) {
+            case "create" -> create(command_name, with);
+            case "delete" -> {
+                if (!DenizenCore.commandRegistry.instances.containsKey(command_name)) {
+                    Debug.echoError("No such command: " + command_name);
+                    return;
+                }
+                DenizenCore.commandRegistry.instances.remove(command_name);
             }
-            DenizenCore.commandRegistry.instances.remove(command_name);
-        } else if (action.equals("rename")) {
-            if (!DenizenCore.commandRegistry.instances.containsKey(command_name)) {
-                Debug.echoError("No such command: " + command_name);
-                return;
+            case "rename" -> {
+                if (!DenizenCore.commandRegistry.instances.containsKey(command_name)) {
+                    Debug.echoError("No such command: " + command_name);
+                    return;
+                }
+                if (with.equals("null")) {
+                    Debug.echoError("Invalid argument: with");
+                    return;
+                }
+                AbstractCommand instance = DenizenCore.commandRegistry.instances.get(command_name);
+                instance.setName(with);
+                instance.setSyntax(instance.syntax.replace(command_name, with));
+                instance = DenizenCore.commandRegistry.instances.get(command_name);
+                DenizenCore.commandRegistry.instances.remove(command_name);
+                DenizenCore.commandRegistry.instances.put(with, instance);
             }
-            if (with.equals("null")) {
-                Debug.echoError("Invalid argument: with");
-                return;
-            }
-            AbstractCommand instance = DenizenCore.commandRegistry.instances.get(command_name);
-            instance.setName(with);
-            instance.setSyntax(instance.syntax.replace(command_name, with));
-            instance = DenizenCore.commandRegistry.instances.get(command_name);
-            DenizenCore.commandRegistry.instances.remove(command_name);
-            DenizenCore.commandRegistry.instances.put(with, instance);
-        } else {
-            Debug.echoError("Invalid action " + action + ". Expected 'create/delete/rename'.");
+            default -> Debug.echoError("Invalid action " + action + ". Expected 'create/delete/rename'.");
         }
     }
-
-
 
 
     private static void create(String command_name, String to) {

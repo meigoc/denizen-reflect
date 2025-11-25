@@ -106,6 +106,7 @@ public class DenizenReflect extends JavaPlugin {
                 DenizenCore.commandRegistry.registerCommand(PlaceholderCommand.class);
                 ScriptEvent.registerScriptEvent(PlaceholderEvent.class);
             }
+            DenizenCore.commandRegistry.registerCommand(AsyncWhileCommand.class);
             DenizenCore.commandRegistry.registerCommand(InvokeCommand.class);
             DenizenCore.commandRegistry.registerCommand(TagCommand.class);
             DenizenCore.commandRegistry.registerCommand(Command.class);
