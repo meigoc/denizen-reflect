@@ -17,6 +17,29 @@ public class InvokeCommand extends AbstractCommand {
         autoCompile();
     }
 
+    // <--[language]
+    // @name Invoke System
+    // @group denizen-reflect
+    // @plugin denizen-reflect
+    // @description
+    // The Invoke System allows executing Java expressions in Denizen scripts.
+    // Supports calling methods, accessing fields, using constructors, and reading
+    // definitions and contexts.
+    //
+    // Examples:
+    // <code>
+    // - invoke player.setHealth(0)
+    // - define hp 5
+    // - invoke player.setHealth(hp)
+    // - narrate <invoke[player.getName()]>
+    // - narrate <invoke[new String("denizen-reflect")]>
+    // </code>
+    //
+    // Tags:
+    // - <invoke[<java_expression>]> returns the result of the expression.
+    //
+    // -->
+
     // <--[command]
     // @Name Invoke
     // @Syntax invoke [<java_expression>]
