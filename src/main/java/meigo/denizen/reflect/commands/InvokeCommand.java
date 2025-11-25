@@ -51,6 +51,9 @@ public class InvokeCommand extends AbstractCommand {
     // @Description
     // Executes a Java string: methods, fields, private methods and fields, constructors.
     //
+    // @Tags
+    // <invoke[<java_expression>]>
+    //
     // @Usage
     // Use to change player health.
     // - invoke player.setHealth(0)
