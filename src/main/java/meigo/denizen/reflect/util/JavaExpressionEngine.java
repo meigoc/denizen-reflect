@@ -2,7 +2,6 @@ package meigo.denizen.reflect.util;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -16,7 +15,10 @@ import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.tags.TagContext;
+import com.denizenscript.denizencore.tags.core.EscapeTagUtil;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
+import com.denizenscript.denizencore.utilities.debugging.Debug;
+import meigo.denizen.DenizenTagFinder;
 
 public final class JavaExpressionEngine {
 
@@ -34,11 +36,17 @@ public final class JavaExpressionEngine {
         INSTANCE.importContexts.clear();
     }
 
+    public static String unescape(String expression) {
+        expression = expression.replace("&com", ",");
+        return EscapeTagUtil.unEscape(expression);
+    }
     public static Object execute(String expression, ScriptEntry scriptEntry) {
         String path = scriptEntry.getScript().getContainer().getRelativeFileName();
         path = path.substring(path.indexOf("scripts/") + "scripts/".length());
+        for (String string : DenizenTagFinder.findTags(expression)) {
+            expression = expression.replace(string, EscapeTagUtil.escape(string).replace(",", "&com"));
+        }
         try {
-
             return INSTANCE.doExecute(expression, scriptEntry, path);
         }
         catch (Throwable t) {
@@ -46,7 +54,9 @@ public final class JavaExpressionEngine {
             if (t instanceof NullPointerException || t.getMessage() == null) {
                 return null;
             }
-            throw new RuntimeException("Error evaluating Java expression: " + expression, t);
+            Debug.echoError("Error evaluating Java expression: " + unescape(expression));
+            Debug.echoError(t.getMessage());
+            return null;
         }
     }
 
@@ -73,10 +83,6 @@ public final class JavaExpressionEngine {
             return false;
         }
         return false;
-    }
-
-    public Map<String, ImportContext> getImports() {
-        return importContexts;
     }
 
     public static ObjectTag wrapObject(Object result, TagContext context) {
@@ -247,16 +253,9 @@ public final class JavaExpressionEngine {
         LEFT_PAREN, RIGHT_PAREN,
         LEFT_BRACKET, RIGHT_BRACKET,
         COMMA, DOT,
-        PLUS, MINUS, STAR, SLASH,
-        BANG,
-        EQUAL,
-        EQUAL_EQUAL, BANG_EQUAL,
-        LESS, LESS_EQUAL,
-        GREATER, GREATER_EQUAL,
         IDENTIFIER, NUMBER, STRING,
         NEW, TRUE, FALSE, NULL,
-        EOF,
-        AT
+        EOF
     }
 
     private static final class Lexer {
@@ -845,7 +844,7 @@ public final class JavaExpressionEngine {
 
         @Override
         Object eval(EvalContext ctx) throws Throwable {
-            String name = this.originalName;
+            String name = EscapeTagUtil.unEscape(this.originalName);
 
 
             if (!name.contains("@")) {
@@ -1067,14 +1066,18 @@ public final class JavaExpressionEngine {
             Object obj = target.eval(ctx);
             Object[] values = new Object[args.size()];
             for (int i = 0; i < args.size(); i++) {
-                values[i] = args.get(i).eval(ctx);
+                Object arg = args.get(i).eval(ctx);
+                if (arg instanceof String) {
+                    arg = unescape((String) arg);
+                }
+                values[i] = arg;
             }
             return ReflectionUtil.invokeMethod(obj, methodName, values);
         }
     }
 
 
-    private static final class ReflectionUtil {
+    public static final class ReflectionUtil {
         private static final MethodHandles.Lookup ROOT_LOOKUP = MethodHandles.lookup();
 
         static Object construct(Class<?> type, Object[] args) throws Throwable {
@@ -1331,7 +1334,7 @@ public final class JavaExpressionEngine {
             return out;
         }
 
-        static Object adaptArgument(Class<?> paramType, Object arg) {
+        public static Object adaptArgument(Class<?> paramType, Object arg) {
             if (arg == null) {
                 return null;
             }
