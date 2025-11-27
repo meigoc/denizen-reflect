@@ -2,9 +2,12 @@ package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
+import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.objects.core.MapTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.ScriptEntryData;
+import com.denizenscript.denizencore.scripts.commands.generator.ArgDefaultNull;
+import com.denizenscript.denizencore.scripts.commands.generator.ArgLinear;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
 import com.denizenscript.denizencore.scripts.queues.ContextSource;
@@ -24,7 +27,7 @@ public class SectionCommand extends BracedCommand {
     public SectionCommand() {
         setName("section");
         setSyntax("section [as:<name>]");
-        setRequiredArguments(1, 1);
+        setRequiredArguments(1, 2);
         isProcedural = false;
         autoCompile();
     }
@@ -33,6 +36,7 @@ public class SectionCommand extends BracedCommand {
     // @Name Section
     // @Syntax section [as:<name>]
     // @Required 1
+    // @Maximum 2
     // @Short Section of commands.
     // @Group denizen-reflect
     //
@@ -50,13 +54,15 @@ public class SectionCommand extends BracedCommand {
         public String queueId;
         public ScriptEntryData entryData;
         public MapTag defMap;
+        public ListTag definitions;
+        public MapTag allDefinitions;
 
         @SuppressWarnings("unused")
         public void run() {
 
             Consumer<ScriptQueue> configure = (queue) -> {
-                if (this.defMap != null) {
-                    for (Map.Entry<StringHolder, ObjectTag> val : defMap.entrySet()) {
+                if (this.allDefinitions != null) {
+                    for (Map.Entry<StringHolder, ObjectTag> val : allDefinitions.entrySet()) {
                         queue.addDefinition(val.getKey().str, val.getValue());
                     }
                 }
@@ -70,6 +76,7 @@ public class SectionCommand extends BracedCommand {
 
     @SuppressWarnings("unused")
     public static void autoExecute(ScriptEntry scriptEntry,
+                                   @ArgName("definitions") @ArgLinear @ArgDefaultNull ListTag definitions,
                                    @ArgName("as") @ArgPrefixed String define) {
         UUID id = UUID.randomUUID();
 
@@ -79,6 +86,7 @@ public class SectionCommand extends BracedCommand {
         section.entryData = scriptEntry.entryData;
         section.contextSource = scriptEntry.context.contextSource;
         section.defMap = scriptEntry.queue.definitions.duplicate();
+        section.definitions = definitions;
 
         scriptEntry.getResidingQueue().addDefinition(define, new JavaReflectedObjectTag(section));
     }
