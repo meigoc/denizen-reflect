@@ -5,6 +5,7 @@ import org.gradle.api.tasks.bundling.Jar
 plugins {
     `java-library`
     `maven-publish`
+    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 java {
@@ -50,9 +51,10 @@ repositories {
 }
 
 dependencies {
-    implementation("me.clip:placeholderapi:2.11.7")
-    implementation("io.papermc.paper:paper-api:${project.properties["craftbukkit.version"]}")
-    implementation("com.denizenscript:denizen:${project.properties["denizen.version"]}")
+    implementation(files("libs/DenizenTagFinder.jar"))
+    compileOnly("me.clip:placeholderapi:2.11.7")
+    compileOnly("io.papermc.paper:paper-api:${project.properties["craftbukkit.version"]}")
+    compileOnly("com.denizenscript:denizen:${project.properties["denizen.version"]}")
 }
 
 val buildNumber: String = System.getenv("BUILD_NUMBER") ?: project.property("BUILD_NUMBER") as String
@@ -79,10 +81,17 @@ publishing {
     }
 }
 
-tasks.withType<JavaCompile>() {
+tasks.shadowJar {
+    archiveClassifier.set("all")
+}
+tasks.build {
+    dependsOn(tasks.shadowJar)
+}
+
+tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
 }
 
-tasks.withType<Javadoc>() {
+tasks.withType<Javadoc> {
     options.encoding = "UTF-8"
 }
