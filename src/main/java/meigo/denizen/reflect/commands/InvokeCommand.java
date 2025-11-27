@@ -1,8 +1,11 @@
 package meigo.denizen.reflect.commands;
 
+import com.denizenscript.denizencore.objects.ObjectFetcher;
+import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
 import com.denizenscript.denizencore.scripts.commands.generator.*;
+import com.denizenscript.denizencore.tags.TagManager;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.reflect.util.JavaExpressionEngine;
 
@@ -15,6 +18,7 @@ public class InvokeCommand extends AbstractCommand {
         setRequiredArguments(1, 1);
         isProcedural = true;
         autoCompile();
+        registerTags();
     }
 
     // <--[language]
@@ -76,5 +80,18 @@ public class InvokeCommand extends AbstractCommand {
         } catch (Exception e) {
             Debug.echoError(e.getLocalizedMessage());
         }
+    }
+
+    public static void registerTags() {
+        // <--[tag]
+        // @attribute <invoke[<java_expression>]>
+        // @returns ObjectTag
+        // @description
+        // Returns the result of the expression.
+        // -->
+        TagManager.registerTagHandler(ObjectTag.class, "invoke", (attribute) -> {
+            String result = JavaExpressionEngine.execute(attribute.getParam(), attribute.getScriptEntry()).toString();
+            return ObjectFetcher.pickObjectFor(result, attribute.context);
+        });
     }
 }
