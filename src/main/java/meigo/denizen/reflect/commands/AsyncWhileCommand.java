@@ -2,18 +2,24 @@ package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
 import com.denizenscript.denizencore.objects.ObjectTag;
+import com.denizenscript.denizencore.objects.core.MapTag;
+import com.denizenscript.denizencore.scripts.ScriptEntryData;
 import com.denizenscript.denizencore.scripts.commands.queue.IfCommand;
+import com.denizenscript.denizencore.scripts.queues.ContextSource;
 import com.denizenscript.denizencore.scripts.queues.ScriptQueue;
-import com.denizenscript.denizencore.scripts.queues.core.InstantQueue;
 import com.denizenscript.denizencore.utilities.CoreConfiguration;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
+import com.denizenscript.denizencore.utilities.ScriptUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.denizenscript.denizencore.objects.core.ElementTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.BracedCommand;
+import com.denizenscript.denizencore.utilities.text.StringHolder;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 
 public class AsyncWhileCommand extends BracedCommand {
 
@@ -94,12 +100,30 @@ public class AsyncWhileCommand extends BracedCommand {
 
     }
 
+    public void async_while(ScriptEntry scriptEntry, List<ScriptEntry> directEntries) {
+
+        String queueId = "Async-While";
+        ScriptEntryData entryData = scriptEntry.entryData.clone();
+        ContextSource contextSource = scriptEntry.context.contextSource;
+        MapTag defMap = scriptEntry.queue.definitions.duplicate();
+
+        Consumer<ScriptQueue> configure = (queue) -> {
+            if (defMap != null) {
+                for (Map.Entry<StringHolder, ObjectTag> val : defMap.entrySet()) {
+                    queue.addDefinition(val.getKey().str, val.getValue());
+                }
+            }
+        };
+
+        ScriptUtilities.createAndStartQueueArbitrary(queueId, directEntries, entryData, contextSource, configure);
+    }
+
     @Override
     public void execute(ScriptEntry scriptEntry) {
         ElementTag stop = scriptEntry.getElement("stop");
         ElementTag next = scriptEntry.getElement("next");
         ElementTag callback = scriptEntry.getElement("callback");
-        ScriptQueue queue = new InstantQueue("async-while");
+        ScriptQueue queue = scriptEntry.queue;
         if (stop != null && stop.asBoolean()) {
             if (scriptEntry.dbCallShouldDebug()) {
                 Debug.report(scriptEntry, getName(), stop);
@@ -188,8 +212,7 @@ public class AsyncWhileCommand extends BracedCommand {
                     for (int i = 0; i < bracedCommands.size(); i++) {
                         bracedCommands.get(i).setInstant(true);
                     }
-                    queue.injectEntriesAtStart(bracedCommands);
-                    queue.start();
+                    async_while(scriptEntry, bracedCommands);
                 }
                 else {
                     data.reapplyAtEnd(queue);
@@ -233,8 +256,7 @@ public class AsyncWhileCommand extends BracedCommand {
                 bracedCommandsList.get(i).setInstant(true);
             }
             scriptEntry.setInstant(true);
-            queue.injectEntriesAtStart(bracedCommandsList);
-            queue.start();
+            async_while(scriptEntry, bracedCommandsList);
         }
     }
 }
