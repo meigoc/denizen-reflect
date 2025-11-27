@@ -109,7 +109,7 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
 
         @Override
         public String onRequest(OfflinePlayer player, @NotNull String params) {
-            return PlaceholderEvent.runPlaceholder(identifier, params);
+            return PlaceholderEvent.runPlaceholder(identifier, params, player);
         }
     }
 

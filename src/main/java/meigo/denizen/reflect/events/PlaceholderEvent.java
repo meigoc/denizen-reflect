@@ -1,8 +1,12 @@
 package meigo.denizen.reflect.events;
 
+import com.denizenscript.denizen.objects.PlayerTag;
+import com.denizenscript.denizen.utilities.implementation.BukkitScriptEntryData;
 import com.denizenscript.denizencore.events.ScriptEvent;
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.ElementTag;
+import com.denizenscript.denizencore.scripts.ScriptEntryData;
+import org.bukkit.OfflinePlayer;
 
 public class PlaceholderEvent extends ScriptEvent {
 
@@ -30,6 +34,7 @@ public class PlaceholderEvent extends ScriptEvent {
 
     public String id;
     public String params;
+    public PlayerTag player;
     public String determination = null;
 
 
@@ -47,6 +52,11 @@ public class PlaceholderEvent extends ScriptEvent {
     }
 
     @Override
+    public ScriptEntryData getScriptEntryData() {
+        return new BukkitScriptEntryData(player, null);
+    }
+
+    @Override
     public ObjectTag getContext(String name) {
         return switch (name) {
             case "id" -> new ElementTag(id);
@@ -55,10 +65,11 @@ public class PlaceholderEvent extends ScriptEvent {
         };
     }
 
-    public static String runPlaceholder(String id, String params) {
+    public static String runPlaceholder(String id, String params, OfflinePlayer player) {
 
         instance.id = id;
         instance.params = params;
+        instance.player = new PlayerTag(player);
 
         instance.fire();
         return instance.determination;
