@@ -94,7 +94,7 @@ public final class JavaExpressionEngine {
         }
     }
 
-    private final Map<String, ImportContext> importContexts = new ConcurrentHashMap<>();
+    public static Map<String, ImportContext> importContexts = new ConcurrentHashMap<>();
 
     private void doImportClass(String path, String className, String alias) throws ClassNotFoundException {
         String keyPath = (path == null || path.isEmpty()) ? "<global>" : path;

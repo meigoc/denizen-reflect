@@ -13,6 +13,7 @@ import com.denizenscript.denizencore.scripts.containers.ScriptContainer;
 import com.denizenscript.denizencore.scripts.queues.core.InstantQueue;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.denizenscript.denizencore.utilities.text.StringHolder;
+import meigo.denizen.reflect.util.JavaExpressionEngine;
 import meigo.denizen.reflect.util.LibraryLoader;
 
 import java.lang.reflect.*;
@@ -37,13 +38,15 @@ public class ProxyCommand extends AbstractCommand {
         List<Class<?>> interfaceList = new ArrayList<>();
         for (String interfaceName : interfaces) {
             try {
-                Class<?> clazz = Class.forName(interfaceName, true, LibraryLoader.getClassLoader());
+                String path = entry.getScript().getContainer().getRelativeFileName();
+                path = path.substring(path.indexOf("scripts/") + "scripts/".length());
+                Class<?> clazz = JavaExpressionEngine.importContexts.get(path).imports.get(interfaceName);
                 if (clazz.isInterface()) {
                     interfaceList.add(clazz);
                 } else {
                     Debug.echoError("Class is not an interface: " + interfaceName);
                 }
-            } catch (ClassNotFoundException e) {
+            } catch (Exception e) {
                 Debug.echoError("Interface not found: " + interfaceName);
             }
         }
