@@ -48,7 +48,7 @@ public class DenizenReflect extends JavaPlugin {
         instance = this;
         saveDefaultConfig();
 
-        Debug.log("Loading..");
+        Debug.log("denizen-reflect", "Loading..");
 
         if (getConfig().getBoolean("experimental.invoke-in-commands")) {
             CommandWrapperUtil.interceptAll(DenizenCore.commandRegistry.instances);
@@ -82,11 +82,11 @@ public class DenizenReflect extends JavaPlugin {
 
         }
         catch (Throwable e) {
-            Debug.echoError("Failed to register DenizenReflect components!");
+            Debug.echoError("Failed to register denizen-reflect components!");
             Debug.echoError(e.getMessage());
         }
 
-        Debug.log("Loaded successfully!");
+        Debug.log("denizen-reflect", "Loaded successfully!");
     }
 
     @Override
