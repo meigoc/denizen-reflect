@@ -6,6 +6,7 @@ import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.ScriptEntryData;
 import com.denizenscript.denizencore.scripts.ScriptRegistry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
+import com.denizenscript.denizencore.scripts.commands.generator.ArgDefaultText;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgLinear;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
@@ -23,17 +24,33 @@ public class ProxyCommand extends AbstractCommand {
 
     public ProxyCommand() {
         setName("proxy");
-        setSyntax("proxy [<interfaces>|...] using:<map> as:<name>");
+        setSyntax("proxy [<interfaces>|...] (using:<map>) (as:<name>)");
         setRequiredArguments(3, 3);
         autoCompile();
     }
+
+    // <--[command]
+    // @Name Proxy
+    // @Syntax proxy [<interfaces>|...] (using:<map>) (as:<name>)
+    // @Required 1
+    // @Maximum 3
+    // @Short Creates a proxy for given interfaces.
+    // @Group denizen-reflect
+    //
+    // @Description
+    // Creates a new proxy object using the specified interfaces.
+    //
+    // @Usage
+    // Use to create proxy of Runnable.
+    // - proxy Runnable using:[run=task]
+    // -->
 
     @SuppressWarnings("unused")
     public static void autoExecute(
             ScriptEntry entry,
             @ArgName("interfaces") @ArgLinear ListTag interfaces,
             @ArgName("using") @ArgPrefixed MapTag using,
-            @ArgName("as") @ArgPrefixed String name) {
+            @ArgName("as") @ArgPrefixed @ArgDefaultText("proxy") String name) {
 
         List<Class<?>> interfaceList = new ArrayList<>();
         for (String interfaceName : interfaces) {

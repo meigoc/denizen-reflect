@@ -6,10 +6,7 @@ import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.objects.core.MapTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.ScriptEntryData;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgDefaultNull;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgLinear;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
+import com.denizenscript.denizencore.scripts.commands.generator.*;
 import com.denizenscript.denizencore.scripts.queues.ContextSource;
 import com.denizenscript.denizencore.scripts.queues.ScriptQueue;
 import com.denizenscript.denizencore.scripts.commands.BracedCommand;
@@ -26,7 +23,7 @@ public class SectionCommand extends BracedCommand {
     // @Plugin denizen-reflect
     public SectionCommand() {
         setName("section");
-        setSyntax("section [as:<name>]");
+        setSyntax("section (<definitions>) (as:<name>)");
         setRequiredArguments(1, 2);
         isProcedural = false;
         autoCompile();
@@ -77,7 +74,7 @@ public class SectionCommand extends BracedCommand {
     @SuppressWarnings("unused")
     public static void autoExecute(ScriptEntry scriptEntry,
                                    @ArgName("definitions") @ArgLinear @ArgDefaultNull ListTag definitions,
-                                   @ArgName("as") @ArgPrefixed String define) {
+                                   @ArgName("as") @ArgPrefixed @ArgDefaultText("section") String define) {
         UUID id = UUID.randomUUID();
 
         Section section = new Section();
