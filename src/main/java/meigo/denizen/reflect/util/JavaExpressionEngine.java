@@ -602,6 +602,10 @@ public final class JavaExpressionEngine {
                         && ctx.scriptEntry.getResidingQueue().definitions.containsKey(name)) {
                     return ctx.scriptEntry.getResidingQueue().getDefinitionObject(name).getJavaObject();
                 }
+                if (ctx.scriptEntry != null && ctx.scriptEntry.getContext() != null
+                        && ctx.scriptEntry.getContext().contextSource != null
+                        && ctx.scriptEntry.getContext().contextSource.getContext(name) != null)
+                { return ctx.scriptEntry.getContext().contextSource.getContext(name).getJavaObject(); }
             } catch (Exception ignored) {}
 
             try {
