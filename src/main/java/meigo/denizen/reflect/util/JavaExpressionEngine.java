@@ -93,21 +93,15 @@ public final class JavaExpressionEngine {
         }
     }
 
-    public static boolean isSimple(Object obj, TagContext context) {
+    public static boolean isSimple(Object obj) {
         if (obj == null) return false;
-        if (obj instanceof ObjectTag) return true;
-        if (obj instanceof String || obj instanceof Number || obj instanceof Boolean
-                || obj instanceof List || obj instanceof Map) {
-            return true;
-        }
-        try {
-            return !(CoreUtilities.objectToTagForm(obj, context).getJavaObject() instanceof String);
-        } catch (Throwable t) {
-            return false;
-        }
+        if (obj instanceof ObjectTag) { return true; }
+        if (obj.getClass().getName().equals("java.util.Collections$UnmodifiableSet")) { return true; }
+        return obj instanceof String || obj instanceof Number || obj instanceof Boolean || obj instanceof LinkedHashMap<?,?>;
     }
 
     public static ObjectTag wrapObject(Object result, TagContext context) {
+        if (isSimple(result)) { return CoreUtilities.objectToTagForm(result, context); }
         return new JavaReflectedObjectTag(result);
     }
 
@@ -137,7 +131,7 @@ public final class JavaExpressionEngine {
 
         if (expression.indexOf('%') >= 0) {
             Object templated = evalTemplate(expression, ctx);
-            if (isSimple(templated, scriptEntry.context)) {
+            if (isSimple(templated)) {
                 return CoreUtilities.objectToTagForm(templated, scriptEntry.context);
             } else {
                 return new JavaReflectedObjectTag(templated);
