@@ -67,9 +67,10 @@ public class PlaceholderEvent extends ScriptEvent {
 
     public static String runPlaceholder(String id, String params, OfflinePlayer player) {
 
+        instance.determination = null;
         instance.id = id;
         instance.params = params;
-        instance.player = new PlayerTag(player);
+        if (player != null) { instance.player = new PlayerTag(player); }
 
         instance.fire();
         return instance.determination;

@@ -5,9 +5,9 @@ import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 import com.denizenscript.denizen.tags.BukkitTagContext;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
@@ -27,6 +27,27 @@ public final class JavaExpressionEngine {
 
     public static final JavaExpressionEngine INSTANCE = new JavaExpressionEngine();
 
+    private static final int MAX_CACHE_SIZE = 1000;
+
+    private static final Map<String, Node> parsedExpressionCache = Collections.synchronizedMap(new LRUCache<>(MAX_CACHE_SIZE));
+
+    private static final Map<String, Class<?>> classLookupCache = new ConcurrentHashMap<>();
+
+    private static final Class<?> CLASS_NOT_FOUND_MARKER = Void.class;
+
+    private static class LRUCache<K, V> extends LinkedHashMap<K, V> {
+        private final int maxEntries;
+
+        public LRUCache(int maxEntries) {
+            super(maxEntries + 1, 0.75f, true);
+            this.maxEntries = maxEntries;
+        }
+
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+            return size() > maxEntries;
+        }
+    }
 
     public static void importClass(String path, String className, String alias) throws ClassNotFoundException {
         INSTANCE.doImportClass(path, className, alias);
@@ -34,23 +55,35 @@ public final class JavaExpressionEngine {
 
     public static void clearAllImports() {
         INSTANCE.importContexts.clear();
+        classLookupCache.clear();
+        parsedExpressionCache.clear();
+        ReflectionUtil.clearCache();
     }
 
     public static String unescape(String expression) {
-        expression = expression.replace("&com", ",");
+        if (expression.contains("&com")) {
+            expression = expression.replace("&com", ",");
+        }
         return EscapeTagUtil.unEscape(expression);
     }
+
     public static Object execute(String expression, ScriptEntry scriptEntry) {
         String path = scriptEntry.getScript().getContainer().getRelativeFileName();
-        path = path.substring(path.indexOf("scripts/") + "scripts/".length());
-        for (String string : DenizenTagFinder.findTags(expression)) {
-            expression = expression.replace(string, EscapeTagUtil.escape(string).replace(",", "&com"));
+        int scriptIdx = path.indexOf("scripts/");
+        if (scriptIdx != -1) {
+            path = path.substring(scriptIdx + "scripts/".length());
         }
+
+        List<String> tags = DenizenTagFinder.findTags(expression);
+        if (!tags.isEmpty()) {
+            for (String string : tags) {
+                expression = expression.replace(string, EscapeTagUtil.escape(string).replace(",", "&com"));
+            }
+        }
+
         try {
             return INSTANCE.doExecute(expression, scriptEntry, path);
-        }
-        catch (Throwable t) {
-
+        } catch (Throwable t) {
             if (t instanceof NullPointerException || t.getMessage() == null) {
                 return null;
             }
@@ -61,37 +94,21 @@ public final class JavaExpressionEngine {
     }
 
     public static boolean isSimple(Object obj, TagContext context) {
-        if (obj == null) {
-            return false;
-        }
-        if (obj instanceof ObjectTag) {
-            return true;
-        }
-        if (obj instanceof String
-                || obj instanceof Number
-                || obj instanceof Boolean
-                || obj instanceof List
-                || obj instanceof Map) {
+        if (obj == null) return false;
+        if (obj instanceof ObjectTag) return true;
+        if (obj instanceof String || obj instanceof Number || obj instanceof Boolean
+                || obj instanceof List || obj instanceof Map) {
             return true;
         }
         try {
-            if (!(CoreUtilities.objectToTagForm(obj, context).getJavaObject() instanceof String)) {
-                return true;
-            }
-        }
-        catch (Throwable t) {
+            return !(CoreUtilities.objectToTagForm(obj, context).getJavaObject() instanceof String);
+        } catch (Throwable t) {
             return false;
         }
-        return false;
     }
 
     public static ObjectTag wrapObject(Object result, TagContext context) {
-        if (isSimple(result, context)) {
-            return CoreUtilities.objectToTagForm(result, context);
-        }
-        else {
-            return new JavaReflectedObjectTag(result);
-        }
+        return new JavaReflectedObjectTag(result);
     }
 
     public static Map<String, ImportContext> importContexts = new ConcurrentHashMap<>();
@@ -105,48 +122,38 @@ public final class JavaExpressionEngine {
     }
 
     private Object doExecute(String expression, ScriptEntry scriptEntry, String path) throws Throwable {
-        if (expression == null) {
-            return null;
-        }
-
+        if (expression == null) return null;
         expression = expression.trim();
 
-
         if (expression.length() >= 2 && expression.charAt(0) == '%' && expression.charAt(expression.length() - 1) == '%') {
-            if (expression.length() == 2) {
-                return "%";
-            }
-
+            if (expression.length() == 2) return "%";
             String inner = expression.substring(1, expression.length() - 1).trim();
             return doExecute(inner, scriptEntry, path);
         }
-
 
         String keyPath = (path == null || path.isEmpty()) ? "<global>" : path;
         ImportContext imports = importContexts.getOrDefault(keyPath, ImportContext.EMPTY);
         EvalContext ctx = new EvalContext(imports, scriptEntry);
 
-
         if (expression.indexOf('%') >= 0) {
             Object templated = evalTemplate(expression, ctx);
             if (isSimple(templated, scriptEntry.context)) {
                 return CoreUtilities.objectToTagForm(templated, scriptEntry.context);
-            }
-            else {
+            } else {
                 return new JavaReflectedObjectTag(templated);
             }
         }
 
-        Parser parser = new Parser(expression);
-        Node root = parser.parse();
-        Object result = root.eval(ctx);
+        Node root = parsedExpressionCache.get(expression);
+        if (root == null) {
+            Parser parser = new Parser(expression);
+            root = parser.parse();
+            parsedExpressionCache.put(expression, root);
+        }
 
+        Object result = root.eval(ctx);
         return wrapObject(result, scriptEntry.context);
     }
-
-
-
-
 
     private Object evalTemplate(String template, EvalContext ctx) throws Throwable {
         StringBuilder out = new StringBuilder();
@@ -180,8 +187,13 @@ public final class JavaExpressionEngine {
                     inner = inner.substring(1, inner.length() - 1);
                 }
 
-                Parser p = new Parser(inner);
-                Node expr = p.parse();
+                Node expr = parsedExpressionCache.get(inner);
+                if (expr == null) {
+                    Parser p = new Parser(inner);
+                    expr = p.parse();
+                    parsedExpressionCache.put(inner, expr);
+                }
+
                 Object val = expr.eval(ctx);
 
                 if (val instanceof ObjectTag) {
@@ -195,10 +207,8 @@ public final class JavaExpressionEngine {
         return out.toString();
     }
 
-
     public static final class ImportContext {
         static final ImportContext EMPTY = new ImportContext(Collections.emptyMap());
-
         public final Map<String, Class<?>> imports;
 
         ImportContext() {
@@ -215,9 +225,7 @@ public final class JavaExpressionEngine {
 
         Class<?> resolveType(String name) {
             Class<?> cls = imports.get(name);
-            if (cls != null) {
-                return cls;
-            }
+            if (cls != null) return cls;
             for (Class<?> c : imports.values()) {
                 if (c.getSimpleName().equals(name)) {
                     return c;
@@ -250,12 +258,9 @@ public final class JavaExpressionEngine {
     }
 
     private enum TokenType {
-        LEFT_PAREN, RIGHT_PAREN,
-        LEFT_BRACKET, RIGHT_BRACKET,
-        COMMA, DOT,
-        IDENTIFIER, NUMBER, STRING,
-        NEW, TRUE, FALSE, NULL,
-        EOF
+        LEFT_PAREN, RIGHT_PAREN, LEFT_BRACKET, RIGHT_BRACKET,
+        COMMA, DOT, IDENTIFIER, NUMBER, STRING,
+        NEW, TRUE, FALSE, NULL, EOF
     }
 
     private static final class Lexer {
@@ -279,34 +284,12 @@ public final class JavaExpressionEngine {
             return tokens;
         }
 
-        private boolean isAtEnd() {
-            return current >= length;
-        }
+        private boolean isAtEnd() { return current >= length; }
+        private char advance() { return source.charAt(current++); }
+        private char peek() { return isAtEnd() ? '\0' : source.charAt(current); }
+        private char peekNext() { return (current + 1 >= length) ? '\0' : source.charAt(current + 1); }
 
-        private char advance() {
-            return source.charAt(current++);
-        }
-
-        private char peek() {
-            return isAtEnd() ? '\0' : source.charAt(current);
-        }
-
-        private char peekNext() {
-            return (current + 1 >= length) ? '\0' : source.charAt(current + 1);
-        }
-
-        private boolean match(char expected) {
-            if (isAtEnd() || source.charAt(current) != expected) {
-                return false;
-            }
-            current++;
-            return true;
-        }
-
-        private void addToken(TokenType type) {
-            addToken(type, null);
-        }
-
+        private void addToken(TokenType type) { addToken(type, null); }
         private void addToken(TokenType type, Object literal) {
             String text = source.substring(start, current);
             tokens.add(new Token(type, text, literal));
@@ -315,102 +298,50 @@ public final class JavaExpressionEngine {
         private void scanToken() {
             char c = advance();
             switch (c) {
-                case '(':
-                    addToken(TokenType.LEFT_PAREN);
-                    return;
-                case ')':
-                    addToken(TokenType.RIGHT_PAREN);
-                    return;
-                case '[':
-                    addToken(TokenType.LEFT_BRACKET);
-                    return;
-                case ']':
-                    addToken(TokenType.RIGHT_BRACKET);
-                    return;
-                case ',':
-                    addToken(TokenType.COMMA);
-                    return;
-                case '.':
-                    addToken(TokenType.DOT);
-                    return;
-                case ' ':
-                case '\r':
-                case '\t':
-                case '\n':
-                    return;
-                case '"':
-                    string();
-                    return;
+                case '(': addToken(TokenType.LEFT_PAREN); return;
+                case ')': addToken(TokenType.RIGHT_PAREN); return;
+                case '[': addToken(TokenType.LEFT_BRACKET); return;
+                case ']': addToken(TokenType.RIGHT_BRACKET); return;
+                case ',': addToken(TokenType.COMMA); return;
+                case '.': addToken(TokenType.DOT); return;
+                case ' ': case '\r': case '\t': case '\n': return;
+                case '"': string(); return;
                 default:
-                    if (isDigit(c)) {
-                        number();
-                        return;
-                    }
-                    if (isAlpha(c)) {
-                        identifier();
-                        return;
-                    }
-                    return;
+                    if (isDigit(c)) { number(); return; }
+                    if (isAlpha(c)) { identifier(); return; }
             }
         }
 
         private boolean isAlpha(char c) {
-            return (c >= 'a' && c <= 'z')
-                    || (c >= 'A' && c <= 'Z')
-                    || c == '_' || c == '$'
-                    || c == '@' || c == '-' || c == '|';
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$' || c == '@' || c == '-' || c == '|';
         }
-
-        @SuppressWarnings("unused")
-        private boolean isAlphaNumeric(char c) {
-            return isAlpha(c) || isDigit(c);
-        }
+        private boolean isDigit(char c) { return c >= '0' && c <= '9'; }
 
         private void string() {
             while (!isAtEnd() && peek() != '"') {
-                if (peek() == '\\' && current + 1 < length) {
-                    current += 2;
-                }
-                else {
-                    advance();
-                }
+                if (peek() == '\\' && current + 1 < length) current += 2;
+                else advance();
             }
-            if (isAtEnd()) {
-                throw new RuntimeException("Unterminated string literal");
-            }
+            if (isAtEnd()) throw new RuntimeException("Unterminated string literal");
             advance();
-
             String raw = source.substring(start + 1, current - 1);
-            String value = raw.replace("\\\"", "\"").replace("\\\\", "\\");
-            addToken(TokenType.STRING, value);
+            addToken(TokenType.STRING, raw.replace("\\\"", "\"").replace("\\\\", "\\"));
         }
 
         private void number() {
-            while (isDigit(peek())) {
-                advance();
-            }
+            while (isDigit(peek())) advance();
             if (peek() == '.' && isDigit(peekNext())) {
                 advance();
-                while (isDigit(peek())) {
-                    advance();
-                }
+                while (isDigit(peek())) advance();
             }
             String text = source.substring(start, current);
             Object literal;
-            if (text.indexOf('.') >= 0) {
-                literal = Double.parseDouble(text);
-            }
+            if (text.indexOf('.') >= 0) literal = Double.parseDouble(text);
             else {
                 try {
                     long l = Long.parseLong(text);
-                    if (l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE) {
-                        literal = (int) l;
-                    }
-                    else {
-                        literal = l;
-                    }
-                }
-                catch (NumberFormatException e) {
+                    literal = (l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE) ? (int) l : l;
+                } catch (NumberFormatException e) {
                     literal = Double.parseDouble(text);
                 }
             }
@@ -420,58 +351,31 @@ public final class JavaExpressionEngine {
         private void identifier() {
             while (!isAtEnd()) {
                 char c = peek();
-                if (c == '.' || c == '(' || c == ')' ||
-                        c == '[' || c == ']' ||
-                        c == ',' || Character.isWhitespace(c)) {
-                    break;
-                }
+                if (c == '.' || c == '(' || c == ')' || c == '[' || c == ']' || c == ',' || Character.isWhitespace(c)) break;
                 advance();
             }
-
             String text = source.substring(start, current);
-
             switch (text) {
-                case "new":
-                    addToken(TokenType.NEW);
-                    return;
-                case "true":
-                    addToken(TokenType.TRUE, Boolean.TRUE);
-                    return;
-                case "false":
-                    addToken(TokenType.FALSE, Boolean.FALSE);
-                    return;
-                case "null":
-                    addToken(TokenType.NULL, null);
-                    return;
-                default:
-                    addToken(TokenType.IDENTIFIER);
-                    return;
+                case "new": addToken(TokenType.NEW); return;
+                case "true": addToken(TokenType.TRUE, Boolean.TRUE); return;
+                case "false": addToken(TokenType.FALSE, Boolean.FALSE); return;
+                case "null": addToken(TokenType.NULL, null); return;
+                default: addToken(TokenType.IDENTIFIER); return;
             }
         }
-
-        private boolean isDigit(char c) {
-            return c >= '0' && c <= '9';
-        }
     }
-
 
     private static final class Parser {
         private final List<Token> tokens;
         private int current = 0;
 
         Parser(String source) {
-            Lexer lexer = new Lexer(source);
-            this.tokens = lexer.tokenize();
+            this.tokens = new Lexer(source).tokenize();
         }
 
-        Node parse() {
-            return expression();
-        }
+        Node parse() { return expression(); }
 
-
-        private Node expression() {
-            return postfix();
-        }
+        private Node expression() { return postfix(); }
 
         private Node postfix() {
             Node node = primary();
@@ -482,8 +386,7 @@ public final class JavaExpressionEngine {
                     if (match(TokenType.LEFT_PAREN)) {
                         List<Node> args = argumentList();
                         node = new MethodCallNode(node, name, args);
-                    }
-                    else {
+                    } else {
                         node = new FieldAccessNode(node, name);
                     }
                     continue;
@@ -501,123 +404,62 @@ public final class JavaExpressionEngine {
         private String readBracketRawString() {
             StringBuilder sb = new StringBuilder();
             int depth = 1;
-
             while (!isAtEnd() && depth > 0) {
                 Token t = advance();
-                if (t.type == TokenType.LEFT_BRACKET) {
-                    depth++;
-                }
+                if (t.type == TokenType.LEFT_BRACKET) depth++;
                 else if (t.type == TokenType.RIGHT_BRACKET) {
                     depth--;
-                    if (depth == 0) {
-                        break;
-                    }
+                    if (depth == 0) break;
                 }
                 sb.append(t.lexeme);
             }
-
-            if (depth > 0) {
-                throw error(previous(), "Unterminated '[' literal");
-            }
-
-            int s = 0, e = sb.length();
-            while (s < e && Character.isWhitespace(sb.charAt(s))) s++;
-            while (e > s && Character.isWhitespace(sb.charAt(e - 1))) e--;
-            return sb.substring(s, e);
+            if (depth > 0) throw new RuntimeException("Unterminated '[' literal");
+            return sb.toString().trim();
         }
 
         private List<Node> argumentList() {
             List<Node> args = new ArrayList<>();
             if (!check(TokenType.RIGHT_PAREN)) {
-                do {
-                    args.add(expression());
-                }
-                while (match(TokenType.COMMA));
+                do { args.add(expression()); } while (match(TokenType.COMMA));
             }
             consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments");
             return args;
         }
 
         private Node primary() {
-            if (match(TokenType.NUMBER)) {
+            if (match(TokenType.NUMBER, TokenType.STRING, TokenType.TRUE, TokenType.FALSE, TokenType.NULL)) {
                 return new LiteralNode(previous().literal);
-            }
-            if (match(TokenType.STRING)) {
-                return new LiteralNode(previous().literal);
-            }
-            if (match(TokenType.TRUE)) {
-                return new LiteralNode(Boolean.TRUE);
-            }
-            if (match(TokenType.FALSE)) {
-                return new LiteralNode(Boolean.FALSE);
-            }
-            if (match(TokenType.NULL)) {
-                return new LiteralNode(null);
             }
             if (match(TokenType.NEW)) {
-                Token typeTok = consume(TokenType.IDENTIFIER, "Expected type name after 'new'");
-                String typeName = typeTok.lexeme;
+                String typeName = consume(TokenType.IDENTIFIER, "Expected type name after 'new'").lexeme;
                 consume(TokenType.LEFT_PAREN, "Expected '(' after type name");
                 List<Node> args = argumentList();
                 return new NewNode(typeName, args);
             }
-            if (match(TokenType.IDENTIFIER)) {
-                return new VariableNode(previous().lexeme);
-            }
+            if (match(TokenType.IDENTIFIER)) return new VariableNode(previous().lexeme);
             if (match(TokenType.LEFT_PAREN)) {
                 Node expr = expression();
                 consume(TokenType.RIGHT_PAREN, "Expected ')' after expression");
                 return expr;
             }
-            throw error(peek(), "Unexpected token: " + peek().lexeme);
+            throw new RuntimeException("Unexpected token: " + peek().lexeme);
         }
 
         private boolean match(TokenType... types) {
             for (TokenType t : types) {
-                if (check(t)) {
-                    advance();
-                    return true;
-                }
+                if (check(t)) { advance(); return true; }
             }
             return false;
         }
-
-        private Token consume(TokenType type, String message) {
-            if (check(type)) {
-                return advance();
-            }
-            throw error(peek(), message);
+        private Token consume(TokenType type, String msg) {
+            if (check(type)) return advance();
+            throw new RuntimeException(msg);
         }
-
-        private boolean check(TokenType type) {
-            if (isAtEnd()) {
-                return false;
-            }
-            return peek().type == type;
-        }
-
-        private Token advance() {
-            if (!isAtEnd()) {
-                current++;
-            }
-            return previous();
-        }
-
-        private boolean isAtEnd() {
-            return peek().type == TokenType.EOF;
-        }
-
-        private Token peek() {
-            return tokens.get(current);
-        }
-
-        private Token previous() {
-            return tokens.get(current - 1);
-        }
-
-        private RuntimeException error(Token token, String message) {
-            return new RuntimeException(message);
-        }
+        private boolean check(TokenType type) { return !isAtEnd() && peek().type == type; }
+        private Token advance() { if (!isAtEnd()) current++; return previous(); }
+        private boolean isAtEnd() { return peek().type == TokenType.EOF; }
+        private Token peek() { return tokens.get(current); }
+        private Token previous() { return tokens.get(current - 1); }
     }
 
     private abstract static class Node {
@@ -626,20 +468,14 @@ public final class JavaExpressionEngine {
 
     private static final class LiteralNode extends Node {
         private final Object value;
-
-        LiteralNode(Object value) {
-            this.value = value;
-        }
-
-        @Override
-        Object eval(EvalContext ctx) {
-            return value;
-        }
+        LiteralNode(Object value) { this.value = value; }
+        @Override Object eval(EvalContext ctx) { return value; }
     }
 
     private static final class BracketInitNode extends Node {
         private final Node target;
         private final String inside;
+        private static final Pattern SPLIT_KV = Pattern.compile("[=:]");
 
         BracketInitNode(Node target, String inside) {
             this.target = target;
@@ -649,113 +485,74 @@ public final class JavaExpressionEngine {
         @Override
         Object eval(EvalContext ctx) throws Throwable {
             Object base = target.eval(ctx);
-
-
             if (base instanceof String) {
                 String name = (String) base;
-                String full = name + "[" + inside + "]";
-
                 try {
-                    Class<?> cls = Class.forName(name, true, LibraryLoader.getClassLoader());
+                    Class<?> cls = resolveClass(name);
                     return evalJavaBracketLiteral(cls);
-                }
-                catch (ClassNotFoundException ex) {
+                } catch (ClassNotFoundException ex) {
                     try {
-                        ObjectTag tag = ObjectFetcher.pickObjectFor(full, ctx.scriptEntry.context);
+                        ObjectTag tag = ObjectFetcher.pickObjectFor(name + "[" + inside + "]", ctx.scriptEntry.context);
                         return tag.getJavaObject();
-                    }
-                    catch (Exception ex2) {
-                        return full;
+                    } catch (Exception ex2) {
+                        return name + "[" + inside + "]";
                     }
                 }
             }
-
             if (base instanceof Class<?>) {
-                Class<?> cls = (Class<?>) base;
-                return evalJavaBracketLiteral(cls);
+                return evalJavaBracketLiteral((Class<?>) base);
             }
-
             throw new RuntimeException("Bracket literal requires class name or string on the left, got: " + base);
         }
 
         private Object evalJavaBracketLiteral(Class<?> cls) throws Throwable {
             if (inside.isEmpty()) {
-                Constructor<?> ctor = findNoArgCtor(cls);
-                if (ctor == null) {
-                    throw new RuntimeException("No-arg constructor not found for " + cls.getName());
-                }
-                ctor.setAccessible(true);
-                return ctor.newInstance();
+                return ReflectionUtil.construct(cls, new Object[0]);
             }
 
             boolean named = inside.contains("=") || inside.contains(":");
 
             if (named) {
-                Object obj = instantiateOrThrow(cls);
-
+                Object obj = ReflectionUtil.construct(cls, new Object[0]);
                 for (String part : splitTopLevel(inside)) {
-                    String[] kv = splitOnce(part, "[=:]");
-                    if (kv == null) {
-                        continue;
-                    }
+                    String[] kv = SPLIT_KV.split(part, 2);
+                    if (kv.length < 2) continue;
                     String fieldName = kv[0].trim();
                     String raw = kv[1].trim();
 
-                    Field f = findFieldDeep(cls, fieldName);
-                    if (f == null) {
-                        throw new RuntimeException("Field '" + fieldName + "' not found in " + cls.getName());
-                    }
-                    f.setAccessible(true);
-                    Object val = convertFromString(raw, f.getType());
+                    Field f = ReflectionUtil.findFieldDeep(cls, fieldName);
+                    if (f == null) throw new RuntimeException("Field '" + fieldName + "' not found in " + cls.getName());
+
+                    Object val = ReflectionUtil.adaptArgument(f.getType(), VariableNode.parseLiteral(f.getType(), raw));
                     f.set(obj, val);
                 }
                 return obj;
-            }
-            else {
-                String[] parts = splitTopLevel(inside);
+            } else {
+                List<String> parts = splitTopLevel(inside);
+                outer:
                 for (Constructor<?> ctor : cls.getDeclaredConstructors()) {
+                    if (ctor.getParameterCount() != parts.size()) continue;
                     Class<?>[] pt = ctor.getParameterTypes();
-                    if (pt.length != parts.length) {
-                        continue;
-                    }
+                    Object[] attemptArgs = new Object[pt.length];
                     try {
-                        Object[] args = new Object[pt.length];
                         for (int i = 0; i < pt.length; i++) {
-                            args[i] = convertFromString(parts[i].trim(), pt[i]);
+                            attemptArgs[i] = ReflectionUtil.adaptArgument(pt[i], VariableNode.parseLiteral(pt[i], parts.get(i).trim()));
                         }
-                        ctor.setAccessible(true);
-                        return ctor.newInstance(args);
-                    }
-                    catch (Throwable ignore) {
-                    }
+                        return ReflectionUtil.construct(cls, attemptArgs);
+                    } catch (Throwable ignore) {}
                 }
-                throw new RuntimeException("No matching constructor found for " + cls.getName() + " with args: " + inside);
+                throw new RuntimeException("No matching constructor found for " + cls.getName() + " with " + parts.size() + " args");
             }
         }
 
-        private static Constructor<?> findNoArgCtor(Class<?> cls) {
-            for (Constructor<?> c : cls.getDeclaredConstructors()) {
-                if (c.getParameterCount() == 0) return c;
-            }
-            return null;
-        }
-
-        private static Object instantiateOrThrow(Class<?> cls) throws Throwable {
-            Constructor<?> ctor = findNoArgCtor(cls);
-            if (ctor == null) {
-                throw new RuntimeException("No-arg constructor required for named initialization of " + cls.getName());
-            }
-            ctor.setAccessible(true);
-            return ctor.newInstance();
-        }
-
-        private static String[] splitTopLevel(String s) {
+        private static List<String> splitTopLevel(String s) {
             List<String> out = new ArrayList<>();
             int start = 0, depthPar = 0;
             boolean inStr = false;
             char strQ = 0;
+            int len = s.length();
 
-            for (int i = 0; i < s.length(); i++) {
+            for (int i = 0; i < len; i++) {
                 char c = s.charAt(i);
                 if (inStr) {
                     if (c == strQ && s.charAt(i - 1) != '\\') inStr = false;
@@ -774,201 +571,89 @@ public final class JavaExpressionEngine {
                 }
             }
             out.add(s.substring(start).trim());
-            return out.toArray(new String[0]);
-        }
-
-        private static String[] splitOnce(String s, String regex) {
-            for (int i = 0; i < s.length(); i++) {
-                char c = s.charAt(i);
-                if (c == '=' || c == ':') {
-                    return new String[]{s.substring(0, i), s.substring(i + 1)};
-                }
-            }
-            return null;
-        }
-
-        private static Field findFieldDeep(Class<?> type, String name) {
-            for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-                try {
-                    return c.getDeclaredField(name);
-                }
-                catch (NoSuchFieldException ignored) {
-                }
-            }
-            return null;
-        }
-
-        private static Object convertFromString(String text, Class<?> toType) throws Exception {
-            if (text == null) return null;
-            text = text.trim();
-
-            if (text.length() >= 2 &&
-                    ((text.startsWith("\"") && text.endsWith("\"")) ||
-                            (text.startsWith("'") && text.endsWith("'")))) {
-                text = text.substring(1, text.length() - 1);
-            }
-
-            if (toType == Boolean.class || toType == boolean.class) {
-                if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("yes") || text.equals("1")) return true;
-                if (text.equalsIgnoreCase("false") || text.equalsIgnoreCase("no") || text.equals("0")) return false;
-                return false;
-            }
-            if (toType == String.class) return text;
-
-            if (toType == int.class || toType == Integer.class) return Integer.parseInt(text);
-            if (toType == long.class || toType == Long.class) return Long.parseLong(text);
-            if (toType == double.class || toType == Double.class) return Double.parseDouble(text);
-            if (toType == float.class || toType == Float.class) return Float.parseFloat(text);
-            if (toType == short.class || toType == Short.class) return Short.parseShort(text);
-            if (toType == byte.class || toType == Byte.class) return Byte.parseByte(text);
-            if (toType == char.class || toType == Character.class)
-                return text.isEmpty() ? '\0' : text.charAt(0);
-
-            if (toType.isEnum()) {
-                @SuppressWarnings({"unchecked", "rawtypes"})
-                Enum<?> e = Enum.valueOf((Class<Enum>) toType, text);
-                return e;
-            }
-
-            return text;
+            return out;
         }
     }
 
     private static final class VariableNode extends Node {
-
         private final String originalName;
-
-        VariableNode(String name) {
-            this.originalName = name;
-        }
+        VariableNode(String name) { this.originalName = name; }
 
         @Override
         Object eval(EvalContext ctx) throws Throwable {
             String name = EscapeTagUtil.unEscape(this.originalName);
 
-
             if (!name.contains("@")) {
                 Class<?> imported = ctx.imports.resolveType(name);
-                if (imported != null) {
-                    return imported;
-                }
+                if (imported != null) return imported;
                 try {
-                    return Class.forName(name, true, LibraryLoader.getClassLoader());
-                }
-                catch (ClassNotFoundException ignored) {
-                    if (name.matches("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$")) {
-                    }
-                    else {
-                    }
-                }
+                    return resolveClass(name);
+                } catch (ClassNotFoundException ignored) {}
             }
 
             if (name.equals("player")) {
-                try {
-                    return ((BukkitTagContext) ctx.scriptEntry.context).player.getJavaObject();
-                }
-                catch (Exception ignored1) {
-                }
+                try { return ((BukkitTagContext) ctx.scriptEntry.context).player.getJavaObject(); }
+                catch (Exception ignored) {}
             }
-            if (name.equals("entry")) {
-                return ctx.scriptEntry;
-            }
+            if (name.equals("entry")) return ctx.scriptEntry;
 
             try {
                 if (ctx.scriptEntry != null && ctx.scriptEntry.getResidingQueue() != null
                         && ctx.scriptEntry.getResidingQueue().definitions.containsKey(name)) {
                     return ctx.scriptEntry.getResidingQueue().getDefinitionObject(name).getJavaObject();
                 }
-                if (ctx.scriptEntry != null && ctx.scriptEntry.getContext() != null
-                        && ctx.scriptEntry.getContext().contextSource != null
-                        && ctx.scriptEntry.getContext().contextSource.getContext(name) != null) {
-                    return ctx.scriptEntry.getContext().contextSource.getContext(name).getJavaObject();
-                }
-            }
-            catch (Exception ignored2) {
-            }
+            } catch (Exception ignored) {}
 
             try {
                 ObjectTag result = ObjectFetcher.pickObjectFor(name, ctx.scriptEntry.context);
                 return result.getJavaObject();
-            }
-            catch (Exception ignored3) {
-            }
+            } catch (Exception ignored) {}
 
             return name;
         }
 
-        private static Object parseLiteral(Class<?> type, String text) {
-            if (text == null) {
-                return null;
-            }
-
-            if (text.length() >= 2 && (
-                    (text.startsWith("\"") && text.endsWith("\"")) ||
-                            (text.startsWith("'") && text.endsWith("'")))) {
+        static Object parseLiteral(Class<?> type, String text) {
+            if (text == null) return null;
+            if (text.length() >= 2 && ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'")))) {
                 text = text.substring(1, text.length() - 1);
             }
-
             try {
                 if (type == String.class) return text;
                 if (type == int.class || type == Integer.class) return Integer.parseInt(text);
-                if (type == long.class || type == Long.class) return Long.parseLong(text);
-                if (type == double.class || type == Double.class) return Double.parseDouble(text);
-                if (type == float.class || type == Float.class) return Float.parseFloat(text);
-                if (type == short.class || type == Short.class) return Short.parseShort(text);
-                if (type == byte.class || type == Byte.class) return Byte.parseByte(text);
-                if (type == boolean.class || type == Boolean.class) {
-                    if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("yes") || text.equals("1")) return true;
-                    if (text.equalsIgnoreCase("false") || text.equalsIgnoreCase("no") || text.equals("0")) return false;
-                }
-                if (type == char.class || type == Character.class) {
-                    return text.isEmpty() ? '\0' : text.charAt(0);
-                }
-
-                if (Number.class.isAssignableFrom(type)) {
-                    if (text.contains(".")) {
-                        return Double.parseDouble(text);
-                    }
-                    return Integer.parseInt(text);
-                }
-
-                if (type.isEnum()) {
-                    @SuppressWarnings({"unchecked", "rawtypes"})
-                    Enum<?> val = Enum.valueOf((Class<Enum>) type, text);
-                    return val;
-                }
-            }
-            catch (Exception ignored) {
-            }
-
+                if (type == boolean.class || type == Boolean.class) return text.equalsIgnoreCase("true") || text.equals("1");
+                if (Number.class.isAssignableFrom(type)) return text.contains(".") ? Double.parseDouble(text) : Integer.parseInt(text);
+                if (type.isEnum()) return Enum.valueOf((Class<Enum>) type, text);
+            } catch (Exception ignored) {}
             return text;
+        }
+    }
+
+    private static Class<?> resolveClass(String name) throws ClassNotFoundException {
+        Class<?> cached = classLookupCache.get(name);
+        if (cached != null) {
+            if (cached == CLASS_NOT_FOUND_MARKER) throw new ClassNotFoundException(name);
+            return cached;
+        }
+        try {
+            Class<?> cls = Class.forName(name, true, LibraryLoader.getClassLoader());
+            classLookupCache.put(name, cls);
+            return cls;
+        } catch (ClassNotFoundException e) {
+            throw e;
         }
     }
 
     private static final class NewNode extends Node {
         private final String typeName;
         private final List<Node> args;
-
-        NewNode(String typeName, List<Node> args) {
-            this.typeName = typeName;
-            this.args = args;
-        }
+        NewNode(String typeName, List<Node> args) { this.typeName = typeName; this.args = args; }
 
         @Override
         Object eval(EvalContext ctx) throws Throwable {
             Class<?> type = ctx.imports.resolveType(typeName);
-            if (type == null) {
-                try {
-                    type = Class.forName(typeName, true, LibraryLoader.getClassLoader());
-                }
-                catch (ClassNotFoundException e) {
-                    throw new RuntimeException("Unknown type: " + typeName, e);
-                }
-            }
+            if (type == null) type = resolveClass(typeName);
             Object[] values = new Object[args.size()];
-            for (int i = 0; i < args.size(); i++) {
-                values[i] = args.get(i).eval(ctx);
-            }
+            for (int i = 0; i < args.size(); i++) values[i] = args.get(i).eval(ctx);
             return ReflectionUtil.construct(type, values);
         }
     }
@@ -976,76 +661,24 @@ public final class JavaExpressionEngine {
     private static final class FieldAccessNode extends Node {
         private final Node targetNode;
         private final String fieldName;
-
-        FieldAccessNode(Node targetNode, String fieldName) {
-            this.targetNode = targetNode;
-            this.fieldName = fieldName;
-        }
+        FieldAccessNode(Node targetNode, String fieldName) { this.targetNode = targetNode; this.fieldName = fieldName; }
 
         @Override
         Object eval(EvalContext ctx) throws Throwable {
             Object base = targetNode.eval(ctx);
-
             if (base instanceof String) {
-                String left = (String) base;
-                String full = left + "." + fieldName;
-                try {
-                    return Class.forName(full, true, LibraryLoader.getClassLoader());
-                }
-                catch (ClassNotFoundException ignored) {
-                    return full;
-                }
+                String full = (String) base + "." + fieldName;
+                try { return resolveClass(full); } catch (ClassNotFoundException ignored) { return full; }
             }
-
             if (base instanceof Class<?>) {
-                Class<?> cls = (Class<?>) base;
-
                 if (fieldName.startsWith("[") && fieldName.endsWith("]")) {
-                    String inside = fieldName.substring(1, fieldName.length() - 1);
-                    Object obj;
-                    try {
-                        Constructor<?> ctor = cls.getDeclaredConstructor();
-                        ctor.setAccessible(true);
-                        obj = ctor.newInstance();
-                    }
-                    catch (NoSuchMethodException ignored) {
-                        obj = ReflectionUtil.construct(cls, new Object[0]);
-                    }
-
-                    String[] parts = inside.split("[,;]");
-                    for (String part : parts) {
-                        String[] kv = part.split("[=:]");
-                        if (kv.length != 2) continue;
-                        String fName = kv[0].trim();
-                        String rawVal = kv[1].trim();
-
-                        Field f = ReflectionUtil.findFieldDeep(cls, fName);
-                        if (f == null) continue;
-                        f.setAccessible(true);
-                        Object val = ReflectionUtil.adaptArgument(f.getType(),
-                                VariableNode.parseLiteral(f.getType(), rawVal));
-                        f.set(obj, val);
-                    }
-                    return obj;
+                    return new BracketInitNode(new LiteralNode(base), fieldName.substring(1, fieldName.length()-1)).eval(ctx);
                 }
-
-                try {
-                    return ReflectionUtil.getField(cls, fieldName);
-                }
-                catch (Throwable ex) {
-                    throw new RuntimeException("No static field '" + fieldName + "' in " + cls.getName());
-                }
+                return ReflectionUtil.getField(base, fieldName);
             }
-
             if (base != null) {
-                try {
-                    return ReflectionUtil.getField(base, fieldName);
-                }
-                catch (Throwable ex) {
-                    throw new RuntimeException("No such field '" + fieldName + "' in " + base.getClass().getName());
-                }
+                return ReflectionUtil.getField(base, fieldName);
             }
-
             throw new RuntimeException("Cannot access field '" + fieldName + "' on null target");
         }
     }
@@ -1054,12 +687,7 @@ public final class JavaExpressionEngine {
         private final Node target;
         private final String methodName;
         private final List<Node> args;
-
-        MethodCallNode(Node target, String methodName, List<Node> args) {
-            this.target = target;
-            this.methodName = methodName;
-            this.args = args;
-        }
+        MethodCallNode(Node target, String methodName, List<Node> args) { this.target = target; this.methodName = methodName; this.args = args; }
 
         @Override
         Object eval(EvalContext ctx) throws Throwable {
@@ -1067,263 +695,233 @@ public final class JavaExpressionEngine {
             Object[] values = new Object[args.size()];
             for (int i = 0; i < args.size(); i++) {
                 Object arg = args.get(i).eval(ctx);
-                if (arg instanceof String) {
-                    arg = unescape((String) arg);
-                }
+                if (arg instanceof String) arg = unescape((String) arg);
                 values[i] = arg;
             }
             return ReflectionUtil.invokeMethod(obj, methodName, values);
         }
     }
 
-
     public static final class ReflectionUtil {
         private static final MethodHandles.Lookup ROOT_LOOKUP = MethodHandles.lookup();
 
+        private static final Map<MemberKey, MethodHandle> METHOD_CACHE = new ConcurrentHashMap<>();
+        private static final Map<MemberKey, MethodHandle> CTOR_CACHE = new ConcurrentHashMap<>();
+        private static final Map<MemberKey, MethodHandle> FIELD_GETTER_CACHE = new ConcurrentHashMap<>();
+
+        private static final class MemberKey {
+            final Class<?> clazz;
+            final String name;
+            final Class<?>[] paramTypes;
+            final int hashCode;
+
+            MemberKey(Class<?> clazz, String name, Class<?>[] paramTypes) {
+                this.clazz = clazz;
+                this.name = name;
+                this.paramTypes = paramTypes;
+                int h = Objects.hash(clazz, name);
+                if (paramTypes != null) h = 31 * h + Arrays.hashCode(paramTypes);
+                this.hashCode = h;
+            }
+
+            @Override
+            public boolean equals(Object o) {
+                if (this == o) return true;
+                if (!(o instanceof MemberKey)) return false;
+                MemberKey that = (MemberKey) o;
+                return clazz == that.clazz &&
+                        Objects.equals(name, that.name) &&
+                        Arrays.equals(paramTypes, that.paramTypes);
+            }
+
+            @Override
+            public int hashCode() { return hashCode; }
+        }
+
+        public static void clearCache() {
+            METHOD_CACHE.clear();
+            CTOR_CACHE.clear();
+            FIELD_GETTER_CACHE.clear();
+        }
+
         static Object construct(Class<?> type, Object[] args) throws Throwable {
-            Constructor<?> ctor = findConstructorDeep(type, args);
-            if (ctor == null) {
-                throw new RuntimeException("No suitable constructor found for " + type.getName()
-                        + " with " + args.length + " args");
+            Class<?>[] argTypes = getTypes(args);
+            MemberKey key = new MemberKey(type, "<init>", argTypes);
+
+            MethodHandle handle = CTOR_CACHE.get(key);
+            if (handle == null) {
+                Constructor<?> ctor = findConstructorDeep(type, args);
+                if (ctor == null) throw new RuntimeException("No constructor for " + type.getName() + " args: " + Arrays.toString(argTypes));
+
+                ctor.setAccessible(true);
+                MethodHandle mh = ROOT_LOOKUP.unreflectConstructor(ctor);
+                handle = mh;
+                CTOR_CACHE.put(key, handle);
             }
 
-            MethodHandles.Lookup lookup;
-            if (Modifier.isPublic(ctor.getModifiers()) && Modifier.isPublic(type.getModifiers())) {
-                lookup = MethodHandles.lookup();
-            }
-            else {
-                try {
-                    lookup = MethodHandles.privateLookupIn(ctor.getDeclaringClass(), ROOT_LOOKUP);
-                }
-                catch (IllegalAccessException ex) {
-                    lookup = MethodHandles.lookup();
-                }
-            }
-
-            ctor.setAccessible(true);
-            MethodHandle handle = lookup.unreflectConstructor(ctor);
-            Class<?>[] paramTypes = ctor.getParameterTypes();
-            Object[] adapted = adaptArguments(paramTypes, args);
+            Object[] adapted = adaptArguments(handle.type().parameterArray(), args);
             return handle.invokeWithArguments(adapted);
         }
 
-
         static Object invokeMethod(Object targetOrClass, String name, Object[] args) throws Throwable {
-            Class<?> owner;
-            Object receiver = null;
-            if (targetOrClass instanceof Class<?>) {
-                owner = (Class<?>) targetOrClass;
-            }
-            else {
-                owner = targetOrClass.getClass();
-                receiver = targetOrClass;
-            }
+            boolean isStatic = targetOrClass instanceof Class<?>;
+            Class<?> owner = isStatic ? (Class<?>) targetOrClass : targetOrClass.getClass();
+            Class<?>[] argTypes = getTypes(args);
 
-            Method method = findMethodDeep(owner, name, args);
-            if (method == null) {
-                throw new RuntimeException("No suitable method " + name + " found in " + owner.getName());
-            }
+            MemberKey key = new MemberKey(owner, name, argTypes);
+            MethodHandle handle = METHOD_CACHE.get(key);
 
-            MethodHandles.Lookup lookup;
-            if (Modifier.isPublic(method.getModifiers()) && Modifier.isPublic(owner.getModifiers())) {
-                lookup = MethodHandles.lookup();
-            }
-            else {
+            if (handle == null) {
+                Method method = findMethodDeep(owner, name, args);
+                if (method == null) throw new RuntimeException("Method " + name + " not found in " + owner.getName());
+
+                method.setAccessible(true);
+                MethodHandles.Lookup lookup;
                 try {
-                    lookup = MethodHandles.privateLookupIn(method.getDeclaringClass(), ROOT_LOOKUP);
-                }
-                catch (IllegalAccessException ex) {
+                    lookup = MethodHandles.privateLookupIn(owner, ROOT_LOOKUP);
+                } catch (IllegalAccessException e) {
                     lookup = MethodHandles.lookup();
                 }
+
+                handle = lookup.unreflect(method);
+                METHOD_CACHE.put(key, handle);
             }
 
-            method.setAccessible(true);
-            if (method.isDefault() && method.getDeclaringClass().isInterface()) {
-                method.setAccessible(true);
-                return method.invoke(receiver, adaptArguments(method.getParameterTypes(), args));
-            }
+            Object[] adapted = adaptArguments(handle.type().parameterArray(), args);
 
-
-
-
-            MethodHandle handle = lookup.unreflect(method);
-            Class<?>[] paramTypes = method.getParameterTypes();
-            Object[] adapted = adaptArguments(paramTypes, args);
-
-            if (Modifier.isStatic(method.getModifiers())) {
+            if (isStatic) {
                 return handle.invokeWithArguments(adapted);
-            }
-            else {
-                if (receiver == null) {
-                    throw new RuntimeException("Instance method " + name + " requires target instance");
-                }
-                Object[] finalArgs = new Object[adapted.length + 1];
-                finalArgs[0] = receiver;
-                System.arraycopy(adapted, 0, finalArgs, 1, adapted.length);
-                return handle.invokeWithArguments(finalArgs);
+            } else {
+                return handle.bindTo(targetOrClass).invokeWithArguments(adapted);
             }
         }
-
 
         static Object getField(Object targetOrClass, String name) throws Throwable {
-            Class<?> owner;
-            Object receiver = null;
-            if (targetOrClass instanceof Class<?>) {
-                owner = (Class<?>) targetOrClass;
-            }
-            else {
-                owner = targetOrClass.getClass();
-                receiver = targetOrClass;
-            }
+            boolean isStatic = targetOrClass instanceof Class<?>;
+            Class<?> owner = isStatic ? (Class<?>) targetOrClass : targetOrClass.getClass();
 
-            Field field = findFieldDeep(owner, name);
-            if (field == null) {
-                throw new RuntimeException("No such field " + name + " in " + owner.getName());
-            }
+            MemberKey key = new MemberKey(owner, name, null);
+            MethodHandle handle = FIELD_GETTER_CACHE.get(key);
 
-            field.setAccessible(true);
-            MethodHandles.Lookup lookup;
-            if (Modifier.isPublic(field.getModifiers()) && Modifier.isPublic(owner.getModifiers())) {
-                lookup = MethodHandles.lookup();
-            }
-            else {
+            if (handle == null) {
+                Field field = findFieldDeep(owner, name);
+                if (field == null) throw new RuntimeException("Field " + name + " not found in " + owner.getName());
+
+                field.setAccessible(true);
+                MethodHandles.Lookup lookup;
                 try {
                     lookup = MethodHandles.privateLookupIn(field.getDeclaringClass(), ROOT_LOOKUP);
-                }
-                catch (IllegalAccessException ex) {
+                } catch (IllegalAccessException e) {
                     lookup = MethodHandles.lookup();
                 }
+
+                handle = lookup.unreflectGetter(field);
+                FIELD_GETTER_CACHE.put(key, handle);
             }
 
-            MethodHandle getter = lookup.unreflectGetter(field);
-
-            if (Modifier.isStatic(field.getModifiers())) {
-                return getter.invoke();
+            if (isStatic) {
+                return handle.invoke();
+            } else {
+                return handle.invoke(targetOrClass);
             }
-            if (receiver == null) {
-                throw new RuntimeException("Instance field " + name + " requires target instance");
-            }
-            return getter.invoke(receiver);
         }
 
+        private static Class<?>[] getTypes(Object[] args) {
+            Class<?>[] types = new Class[args.length];
+            for (int i = 0; i < args.length; i++) {
+                types[i] = args[i] == null ? null : args[i].getClass();
+            }
+            return types;
+        }
 
         static Field findFieldDeep(Class<?> type, String name) {
             for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-                try {
-                    return c.getDeclaredField(name);
-                }
-                catch (NoSuchFieldException ignored) {
-                }
+                try { return c.getDeclaredField(name); } catch (NoSuchFieldException ignored) {}
             }
             return null;
         }
 
         static Method findMethodDeep(Class<?> type, String name, Object[] args) {
-
             for (Method m : type.getMethods()) {
-                if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args)) {
-                    return m;
+                if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args, true)) return m;
+            }
+
+            Method fuzzyMatch = null;
+            for (Method m : type.getMethods()) {
+                if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args, false)) {
+                    fuzzyMatch = m;
+                    break;
                 }
             }
+            if (fuzzyMatch != null) return fuzzyMatch;
 
             for (Class<?> c = type; c != null; c = c.getSuperclass()) {
                 for (Method m : c.getDeclaredMethods()) {
-                    if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args)) {
-                        return m;
-                    }
+                    if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args, true)) return m;
                 }
-                for (Class<?> iface : c.getInterfaces()) {
-                    Method m = findMethodDeep(iface, name, args);
-                    if (m != null) {
-                        return m;
+                if (fuzzyMatch == null) {
+                    for (Method m : c.getDeclaredMethods()) {
+                        if (m.getName().equals(name) && isApplicable(m.getParameterTypes(), args, false)) {
+                            fuzzyMatch = m;
+                            break;
+                        }
                     }
                 }
             }
-            return null;
-        }
 
+            return fuzzyMatch;
+        }
 
         static Constructor<?> findConstructorDeep(Class<?> type, Object[] args) {
             for (Class<?> c = type; c != null; c = c.getSuperclass()) {
                 for (Constructor<?> ctor : c.getDeclaredConstructors()) {
-                    if (isApplicable(ctor.getParameterTypes(), args)) {
-                        return ctor;
-                    }
+                    if (isApplicable(ctor.getParameterTypes(), args, true)) return ctor;
+                }
+            }
+            for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+                for (Constructor<?> ctor : c.getDeclaredConstructors()) {
+                    if (isApplicable(ctor.getParameterTypes(), args, false)) return ctor;
                 }
             }
             return null;
         }
 
-        private static Object parseLiteral(Class<?> type, String text) {
-            if (text == null) {
-                return null;
-            }
-
-            if (text.length() >= 2 && (
-                    (text.startsWith("\"") && text.endsWith("\"")) ||
-                            (text.startsWith("'") && text.endsWith("'")))) {
-                text = text.substring(1, text.length() - 1);
-            }
-
-            try {
-                if (type == String.class) return text;
-                if (type == int.class || type == Integer.class) return Integer.parseInt(text);
-                if (type == long.class || type == Long.class) return Long.parseLong(text);
-                if (type == double.class || type == Double.class) return Double.parseDouble(text);
-                if (type == float.class || type == Float.class) return Float.parseFloat(text);
-                if (type == short.class || type == Short.class) return Short.parseShort(text);
-                if (type == byte.class || type == Byte.class) return Byte.parseByte(text);
-                if (type == boolean.class || type == Boolean.class) {
-                    if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("yes") || text.equals("1")) return true;
-                    if (text.equalsIgnoreCase("false") || text.equalsIgnoreCase("no") || text.equals("0")) return false;
-                }
-                if (type == char.class || type == Character.class) {
-                    return text.isEmpty() ? '\0' : text.charAt(0);
-                }
-
-                if (Number.class.isAssignableFrom(type)) {
-                    if (text.contains(".")) {
-                        return Double.parseDouble(text);
-                    }
-                    return Integer.parseInt(text);
-                }
-
-                if (type.isEnum()) {
-                    @SuppressWarnings({"unchecked", "rawtypes"})
-                    Enum<?> val = Enum.valueOf((Class<Enum>) type, text);
-                    return val;
-                }
-            }
-            catch (Exception ignored) {
-            }
-
-            return text;
-        }
-
-
-        static boolean isApplicable(Class<?>[] paramTypes, Object[] args) {
+        static boolean isApplicable(Class<?>[] paramTypes, Object[] args, boolean strict) {
             if (paramTypes.length != args.length) return false;
             for (int i = 0; i < paramTypes.length; i++) {
-                Class<?> p = paramTypes[i];
-                Object arg = args[i];
-                if (arg == null) {
-                    if (p.isPrimitive()) return false;
-                    continue;
-                }
-                Class<?> a = arg.getClass();
-                if (p.isPrimitive()) {
-                    Class<?> wrapper = primitiveToWrapper(p);
-                    if (wrapper.isAssignableFrom(a)) continue;
-                    if (Number.class.isAssignableFrom(wrapper) && Number.class.isAssignableFrom(a)) continue;
-                    return false;
-                }
-                else {
-                    if (p.isAssignableFrom(a)) continue;
-                    if (Number.class.isAssignableFrom(p) && Number.class.isAssignableFrom(a)) continue;
-                    return false;
-                }
+                if (!isArgApplicable(paramTypes[i], args[i], strict)) return false;
             }
             return true;
+        }
+
+        static boolean isArgApplicable(Class<?> p, Object arg, boolean strict) {
+            if (arg == null) return !p.isPrimitive();
+            Class<?> a = arg.getClass();
+
+            if (arg instanceof String) {
+                if (p == String.class) return true;
+
+                if (strict) return false;
+
+                if (Number.class.isAssignableFrom(p) || (p.isPrimitive() && p != boolean.class && p != char.class)) return true;
+                if (p == Boolean.class || p == boolean.class) return true;
+                if (p.isEnum()) return true;
+                return false;
+            }
+
+            if (p.isPrimitive()) {
+                Class<?> wrapper = primitiveToWrapper(p);
+                if (wrapper.isAssignableFrom(a)) return true;
+
+                if (!strict && Number.class.isAssignableFrom(wrapper) && Number.class.isAssignableFrom(a)) return true;
+                return false;
+            }
+
+            if (p.isAssignableFrom(a)) return true;
+
+            if (!strict && Number.class.isAssignableFrom(p) && Number.class.isAssignableFrom(a)) return true;
+
+            return false;
         }
 
         static Object[] adaptArguments(Class<?>[] paramTypes, Object[] args) {
@@ -1335,23 +933,24 @@ public final class JavaExpressionEngine {
         }
 
         public static Object adaptArgument(Class<?> paramType, Object arg) {
-            if (arg == null) {
-                return null;
-            }
-
-            if (arg instanceof com.denizenscript.denizencore.objects.ObjectTag) {
-                Object javaObj = ((com.denizenscript.denizencore.objects.ObjectTag) arg).getJavaObject();
-                if (paramType.isInstance(javaObj)) {
-                    return javaObj;
+            if (arg == null) return null;
+            if (arg instanceof String s) {
+                String text = s.trim();
+                if (paramType == boolean.class || paramType == Boolean.class) return text.equalsIgnoreCase("true") || text.equals("1");
+                if (paramType == char.class || paramType == Character.class) return text.isEmpty() ? '\0' : text.charAt(0);
+                if (paramType.isEnum()) {
+                    try { return Enum.valueOf((Class<Enum>) paramType, text); } catch (Exception ignored) {}
                 }
+                if (Number.class.isAssignableFrom(primitiveToWrapper(paramType))) return convertToNumber(primitiveToWrapper(paramType), text);
+            }
+            if (arg instanceof ObjectTag) {
+                Object javaObj = ((ObjectTag) arg).getJavaObject();
+                if (paramType.isInstance(javaObj)) return javaObj;
                 return adaptArgument(paramType, javaObj);
             }
-
             if (paramType.isPrimitive()) {
                 Class<?> wrapper = primitiveToWrapper(paramType);
-                if (wrapper.isInstance(arg)) {
-                    return arg;
-                }
+                if (wrapper.isInstance(arg)) return arg;
                 if (arg instanceof Number && Number.class.isAssignableFrom(wrapper)) {
                     Number n = (Number) arg;
                     if (paramType == int.class) return n.intValue();
@@ -1360,72 +959,14 @@ public final class JavaExpressionEngine {
                     if (paramType == float.class) return n.floatValue();
                     if (paramType == short.class) return n.shortValue();
                     if (paramType == byte.class) return n.byteValue();
-                    if (paramType == char.class) return (char) n.intValue();
                 }
-                if (paramType == boolean.class && arg instanceof Boolean) {
-                    return arg;
-                }
-                if (paramType == char.class && arg instanceof Character) {
-                    return arg;
-                }
-                return arg;
             }
-
-            if (paramType.isInstance(arg)) {
-                return arg;
-            }
-
             if (Number.class.isAssignableFrom(paramType) && arg instanceof Number) {
                 Number n = (Number) arg;
                 if (paramType == Integer.class) return n.intValue();
                 if (paramType == Long.class) return n.longValue();
                 if (paramType == Double.class) return n.doubleValue();
-                if (paramType == Float.class) return n.floatValue();
-                if (paramType == Short.class) return n.shortValue();
-                if (paramType == Byte.class) return n.byteValue();
             }
-
-            if (arg instanceof String && Number.class.isAssignableFrom(paramType)) {
-                try {
-                    String s = (String) arg;
-                    if (paramType == Integer.class) return Integer.parseInt(s);
-                    if (paramType == Long.class) return Long.parseLong(s);
-                    if (paramType == Double.class) return Double.parseDouble(s);
-                    if (paramType == Float.class) return Float.parseFloat(s);
-                    if (paramType == Short.class) return Short.parseShort(s);
-                    if (paramType == Byte.class) return Byte.parseByte(s);
-                }
-                catch (Throwable ignored) {
-                }
-            }
-
-            if (paramType.isEnum() && arg instanceof String) {
-                try {
-                    @SuppressWarnings({"rawtypes", "unchecked"})
-                    Object e = Enum.valueOf((Class<Enum>) paramType, (String) arg);
-                    return e;
-                }
-                catch (IllegalArgumentException ignored) {
-                }
-            }
-
-            try {
-                if (arg instanceof Iterable && !paramType.isAssignableFrom(arg.getClass())) {
-                    Iterable<?> it = (Iterable<?>) arg;
-                    List<Object> list = new ArrayList<>();
-                    for (Object o : it) {
-                        list.add(o instanceof com.denizenscript.denizencore.objects.ObjectTag
-                                ? ((com.denizenscript.denizencore.objects.ObjectTag) o).getJavaObject()
-                                : o);
-                    }
-                    if (paramType.isInstance(list)) {
-                        return list;
-                    }
-                }
-            }
-            catch (Throwable ignored) {
-            }
-
             return arg;
         }
 
@@ -1439,6 +980,16 @@ public final class JavaExpressionEngine {
             if (primitive == boolean.class) return Boolean.class;
             if (primitive == char.class) return Character.class;
             return primitive;
+        }
+
+        private static Number convertToNumber(Class<?> type, String text) {
+            try {
+                if (type == Integer.class) return Integer.parseInt(text);
+                if (type == Long.class) return Long.parseLong(text);
+                if (type == Double.class) return Double.parseDouble(text);
+                if (type == Float.class) return Float.parseFloat(text);
+            } catch (Exception ignored) {}
+            return null;
         }
     }
 }
