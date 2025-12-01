@@ -1,2 +1,2 @@
 experimental:
-  invoke-in-commands: false # (Need restart) // - define player_name %player.getName()%
+  invoke-in-commands: false
