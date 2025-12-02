@@ -18,3 +18,16 @@ Features:
 - Renaming denizen events.
 - Creating proxies.
 - And other.
+
+```
+import:
+    java.lang.System as alias
+    java.lang.String
+
+task:
+    type: task
+    script:
+    - invoke player.kick()
+    - invoke System.out.println("test")
+    - define
+```
