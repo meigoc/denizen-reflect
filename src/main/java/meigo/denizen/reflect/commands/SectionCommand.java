@@ -10,11 +10,11 @@ import com.denizenscript.denizencore.scripts.commands.generator.*;
 import com.denizenscript.denizencore.scripts.queues.ContextSource;
 import com.denizenscript.denizencore.scripts.queues.ScriptQueue;
 import com.denizenscript.denizencore.scripts.commands.BracedCommand;
+import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.ScriptUtilities;
-import com.denizenscript.denizencore.utilities.text.StringHolder;
+import static meigo.denizen.reflect.util.JavaExpressionEngine.wrapObject;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -48,19 +48,24 @@ public class SectionCommand extends BracedCommand {
     public static class Section {
         public List<ScriptEntry> directEntries;
         public ContextSource contextSource;
+        public TagContext context;
         public String queueId;
         public ScriptEntryData entryData;
         public MapTag defMap;
         public ListTag definitions;
-        public MapTag allDefinitions;
 
         @SuppressWarnings("unused")
-        public void run() {
+        public void run(Object... def) {
 
             Consumer<ScriptQueue> configure = (queue) -> {
-                if (this.allDefinitions != null) {
-                    for (Map.Entry<StringHolder, ObjectTag> val : allDefinitions.entrySet()) {
-                        queue.addDefinition(val.getKey().str, val.getValue());
+                if (def != null) {
+                    int i = 0;
+                    for (Object object : def) {
+                        try {
+                            queue.addDefinition(definitions.get(i), wrapObject(object, context));
+                        } catch (Exception e) {
+                            queue.addDefinition(String.valueOf(i + 1), wrapObject(object, context));
+                        } i++;
                     }
                 }
             };
@@ -84,6 +89,7 @@ public class SectionCommand extends BracedCommand {
         section.contextSource = scriptEntry.context.contextSource;
         section.defMap = scriptEntry.queue.definitions.duplicate();
         section.definitions = definitions;
+        section.context = scriptEntry.context;
 
         scriptEntry.getResidingQueue().addDefinition(define, new JavaReflectedObjectTag(section));
     }
