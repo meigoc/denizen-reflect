@@ -17,6 +17,7 @@ Features:
 - Creating your own denizen tags.
 - Renaming denizen events.
 - Creating proxies.
+- Lambda expression.
 - And other.
 
 ```
