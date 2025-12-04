@@ -155,19 +155,7 @@ public class ProxyCommand extends AbstractCommand {
                     queue.addDefinition("method", new ElementTag(methodName));
                     queue.start();
                 } else if (scriptName.getJavaObject() instanceof SectionCommand.Section section) {
-                    definitions = section.definitions;
-                    section.allDefinitions = new MapTag();
-                    section.allDefinitions.putAll(section.defMap);
-                    section.allDefinitions.putObject("proxy", new JavaReflectedObjectTag(proxy));
-                    section.allDefinitions.putObject("method", new ElementTag(methodName));
-                    for (ObjectTag arg : argsList.objectForms) {
-                        try {
-                            section.allDefinitions.putObject(definitions.get(i), arg);
-                        } catch (Exception e) {
-                            section.allDefinitions.putObject(String.valueOf(i + 1), arg);
-                        } i++;
-                    section.run();
-                    }
+                    section.run(args);
                 } else {
                     Debug.echoError("Proxy handler refers to missing script: " + scriptName);
                     return null;
