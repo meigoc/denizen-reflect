@@ -50,10 +50,6 @@ public class DenizenReflect extends JavaPlugin {
 
         Debug.log("denizen-reflect", "Loading..");
 
-        if (getConfig().getBoolean("experimental.invoke-in-commands")) {
-            CommandWrapperUtil.interceptAll(DenizenCore.commandRegistry.instances);
-        }
-
         try {
             Path libsFolder = getDataFolder().toPath().resolve("libs");
             LibraryLoader.loadLibraries(libsFolder);
