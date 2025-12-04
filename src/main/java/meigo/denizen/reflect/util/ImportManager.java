@@ -60,10 +60,12 @@ public class ImportManager {
 
             @Override
             public ScriptEvent fire() {
-                if (this.message != null && CoreUtilities.toLowerCase(this.message).contains("import")) {
-                    if (Objects.equals(this.script != null ? this.script.getName() : "null", "null")) {
+                if (this.message != null) {
+                    String lowerMsg = CoreUtilities.toLowerCase(this.message);
+                    if (lowerMsg.contains("container") && lowerMsg.contains("'import'")) {
                         this.cancelled = true;
                         this.cancellationChanged();
+                        return null;
                     }
                 }
                 ScriptEvent result = null;
