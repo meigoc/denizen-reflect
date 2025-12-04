@@ -1,6 +1,6 @@
 name: denizen-reflect
 author: isnsest
-version: "2.0"
+version: 2.0
 main: meigo.denizen.reflect.DenizenReflect
 description: Allows Denizen scripts to directly interact with and manipulate Java objects.
 depend: [Denizen]
