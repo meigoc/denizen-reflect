@@ -23,7 +23,7 @@ public class SectionCommand extends BracedCommand {
     public SectionCommand() {
         setName("section");
         setSyntax("section (<definitions>) (as:<name>)");
-        setRequiredArguments(1, 2);
+        setRequiredArguments(0, 2);
         isProcedural = false;
         autoCompile();
     }
