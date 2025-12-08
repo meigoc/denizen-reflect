@@ -1,12 +1,10 @@
 package meigo.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsRuntimeException;
+import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.scripts.ScriptEntry;
 import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgDefaultNull;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgLinear;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
-import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
+import com.denizenscript.denizencore.scripts.commands.generator.*;
 import me.clip.placeholderapi.events.ExpansionsLoadedEvent;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import meigo.denizen.reflect.DenizenReflect;
@@ -26,8 +24,8 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
     // @Plugin denizen-reflect
     public PlaceholderCommand() {
         setName("placeholder");
-        setSyntax("placeholder [create/delete] [<placeholder>] [author:<author>] [version:<version>]");
-        setRequiredArguments(2, 4);
+        setSyntax("placeholder [create/delete] [<placeholder>] [author:<author>] [version:<version>] (executor:{event}/<section>)");
+        setRequiredArguments(2, 5);
         isProcedural = false;
         autoCompile();
         Bukkit.getPluginManager().registerEvents(this, DenizenReflect.getInstance());
@@ -35,9 +33,9 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
 
     // <--[command]
     // @Name Placeholder
-    // @Syntax placeholder [create/delete] [<placeholder>] [author:<author>] [version:<version>]
+    // @Syntax placeholder [create/delete] [<placeholder>] [author:<author>] [version:<version>] (executor:{event}/<section>)
     // @Required 2
-    // @Maximum 4
+    // @Maximum 5
     // @Short Placeholder manager.
     // @Group denizen-reflect
     //
@@ -54,7 +52,8 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
                                    @ArgName("action") @ArgLinear String action,
                                    @ArgName("placeholder") @ArgLinear String placeholder,
                                    @ArgName("author") @ArgPrefixed @ArgDefaultNull String author,
-                                   @ArgName("version") @ArgPrefixed @ArgDefaultNull String version) {
+                                   @ArgName("version") @ArgPrefixed @ArgDefaultNull String version,
+                                   @ArgName("executor") @ArgPrefixed @ArgDefaultText("event") ObjectTag executor) {
         switch (action) {
             case "create":
                 if (author == null || version == null) { throw new InvalidArgumentsRuntimeException("Author and version cannot be null."); }
@@ -62,6 +61,7 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
                 expansion.author = author;
                 expansion.identifier = placeholder;
                 expansion.version = version;
+                expansion.executor = executor.getJavaObject();
                 expansion.register();
                 expansions.put(placeholder, expansion);
                 break;
@@ -88,6 +88,7 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
         String author = null;
         String identifier = null;
         String version = null;
+        Object executor = null;
 
         @Override
         @NotNull
@@ -109,7 +110,10 @@ public class PlaceholderCommand extends AbstractCommand implements Listener {
 
         @Override
         public String onRequest(OfflinePlayer player, @NotNull String params) {
-            return PlaceholderEvent.runPlaceholder(identifier, params, player);
+            if (executor.toString().equals("event")) {
+                return PlaceholderEvent.runPlaceholder(identifier, params, player);
+            }
+            return null;
         }
     }
 
