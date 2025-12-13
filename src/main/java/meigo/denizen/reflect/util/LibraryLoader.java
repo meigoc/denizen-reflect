@@ -19,6 +19,8 @@ import java.util.List;
 public class LibraryLoader {
     private static ClassLoader classLoader = LibraryLoader.class.getClassLoader();
 
+    public static List<String> libraries = new ArrayList<>();
+
     private static final PathMatcher MATCHER =
             FileSystems.getDefault().getPathMatcher("glob:**/*.jar");
 
@@ -31,6 +33,7 @@ public class LibraryLoader {
             if (MATCHER.matches(file)) {
                 Debug.log("denizen-reflect", "Loaded external library " + file.getFileName());
                 urls.add(file.toUri().toURL());
+                libraries.add(file.getFileName().toString().replace(".jar", ""));
             }
             return super.visitFile(file, attrs);
         }
