@@ -1,5 +1,6 @@
 package meigo.denizen.reflect.commands;
 
+import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
 import com.denizenscript.denizencore.objects.core.ListTag;
 import com.denizenscript.denizencore.objects.core.MapTag;
@@ -11,9 +12,12 @@ import com.denizenscript.denizencore.scripts.queues.ScriptQueue;
 import com.denizenscript.denizencore.scripts.commands.BracedCommand;
 import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.ScriptUtilities;
+import com.denizenscript.denizencore.utilities.text.StringHolder;
+
 import static meigo.denizen.reflect.util.JavaExpressionEngine.wrapObject;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -55,8 +59,10 @@ public class SectionCommand extends BracedCommand {
 
         @SuppressWarnings("unused")
         public void run(Object... def) {
-
             Consumer<ScriptQueue> configure = (queue) -> {
+                for (Map.Entry<StringHolder, ObjectTag> object : defMap.entrySet()) {
+                    queue.addDefinition(object.getKey().toString(), object.getValue());
+                }
                 if (def != null) {
                     int i = 0;
                     for (Object object : def) {
