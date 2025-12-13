@@ -2,10 +2,7 @@ package meigo.denizen.reflect.util;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
+import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -20,6 +17,7 @@ import com.denizenscript.denizencore.tags.core.EscapeTagUtil;
 import com.denizenscript.denizencore.utilities.CoreUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import meigo.denizen.DenizenTagFinder;
+import meigo.denizen.reflect.commands.*;
 
 public final class JavaExpressionEngine {
 
@@ -28,25 +26,15 @@ public final class JavaExpressionEngine {
 
     public static final JavaExpressionEngine INSTANCE = new JavaExpressionEngine();
 
-    private static final int MAX_CACHE_SIZE = 1000;
+    private static final int MAX_CACHE_SIZE = 2000;
 
-    private static final Map<String, Node> parsedExpressionCache = Collections.synchronizedMap(new LRUCache<>(MAX_CACHE_SIZE));
-
+    private static final Map<String, Node> parsedExpressionCache = new ConcurrentHashMap<>();
     private static final Map<String, Class<?>> classLookupCache = new ConcurrentHashMap<>();
-
     private static final Class<?> CLASS_NOT_FOUND_MARKER = Void.class;
 
-    private static class LRUCache<K, V> extends LinkedHashMap<K, V> {
-        private final int maxEntries;
-
-        public LRUCache(int maxEntries) {
-            super(maxEntries + 1, 0.75f, true);
-            this.maxEntries = maxEntries;
-        }
-
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
-            return size() > maxEntries;
+    private static void checkCacheSize() {
+        if (parsedExpressionCache.size() > MAX_CACHE_SIZE) {
+            parsedExpressionCache.clear();
         }
     }
 
@@ -94,7 +82,8 @@ public final class JavaExpressionEngine {
                 return null;
             }
             Debug.echoError("Error evaluating Java expression: " + unescape(expression));
-            Debug.echoError(t.getMessage());
+            Debug.echoError(t.getClass().getSimpleName() + ": " + t.getMessage());
+            t.printStackTrace();
             return null;
         }
     }
@@ -103,7 +92,8 @@ public final class JavaExpressionEngine {
         if (obj == null) return false;
         if (obj instanceof ObjectTag) { return true; }
         if (obj instanceof List || obj instanceof Map) { return true; }
-        if (obj.getClass().getName().equals("java.util.Collections$UnmodifiableSet")) { return true; }
+        if (obj.getClass() == java.util.Collections.EMPTY_SET.getClass()) return true;
+        if (obj.getClass().getName().startsWith("java.util.Collections$Unmodifiable")) { return true; }
         return obj instanceof String || obj instanceof Number || obj instanceof Boolean;
     }
 
@@ -116,9 +106,18 @@ public final class JavaExpressionEngine {
 
     private void doImportClass(String path, String className, String alias) throws ClassNotFoundException {
         String keyPath = (path == null || path.isEmpty()) ? "<global>" : path;
-        Class<?> cls = Class.forName(className, true, LibraryLoader.getClassLoader());
         ImportContext ctx = importContexts.computeIfAbsent(keyPath, p -> new ImportContext());
-        String key = (alias == null || alias.isEmpty()) ? cls.getSimpleName() : alias;
+
+        
+        if (className.endsWith(".*")) {
+            String packageName = className.substring(0, className.length() - 2); 
+            ctx.addStarImport(packageName);
+            return;
+        }
+
+        Class<?> cls = resolveClass(className);
+        
+        String key = (alias != null && !alias.isEmpty()) ? alias : cls.getSimpleName();
         ctx.addImport(key, cls);
     }
 
@@ -145,12 +144,10 @@ public final class JavaExpressionEngine {
             }
         }
 
-        Node root = parsedExpressionCache.get(expression);
-        if (root == null) {
-            Parser parser = new Parser(expression);
-            root = parser.parse();
-            parsedExpressionCache.put(expression, root);
-        }
+        Node root = parsedExpressionCache.computeIfAbsent(expression, k -> {
+            checkCacheSize();
+            return new Parser(k).parse();
+        });
 
         Object result = root.eval(ctx);
         return wrapObject(result, scriptEntry.context);
@@ -188,12 +185,7 @@ public final class JavaExpressionEngine {
                     inner = inner.substring(1, inner.length() - 1);
                 }
 
-                Node expr = parsedExpressionCache.get(inner);
-                if (expr == null) {
-                    Parser p = new Parser(inner);
-                    expr = p.parse();
-                    parsedExpressionCache.put(inner, expr);
-                }
+                Node expr = parsedExpressionCache.computeIfAbsent(inner, k -> new Parser(k).parse());
 
                 Object val = expr.eval(ctx);
 
@@ -238,25 +230,40 @@ public final class JavaExpressionEngine {
     public static final class ImportContext {
         static final ImportContext EMPTY = new ImportContext(Collections.emptyMap());
         public final Map<String, Class<?>> imports;
+        public final Set<String> starImports;
 
         ImportContext() {
             this.imports = new ConcurrentHashMap<>();
+            this.starImports = Collections.newSetFromMap(new ConcurrentHashMap<>());
         }
 
         ImportContext(Map<String, Class<?>> imports) {
             this.imports = imports;
+            this.starImports = Collections.emptySet();
         }
 
         void addImport(String alias, Class<?> cls) {
             imports.put(alias, cls);
         }
 
+        void addStarImport(String packageName) {
+            starImports.add(packageName);
+        }
+
         Class<?> resolveType(String name) {
+            
             Class<?> cls = imports.get(name);
             if (cls != null) return cls;
-            for (Class<?> c : imports.values()) {
-                if (c.getSimpleName().equals(name)) {
-                    return c;
+
+            
+            
+            if (!starImports.isEmpty()) {
+                for (String pkg : starImports) {
+                    try {
+                        return resolveClass(pkg + "." + name);
+                    } catch (ClassNotFoundException ignored) {
+                        
+                    }
                 }
             }
             return null;
@@ -264,10 +271,9 @@ public final class JavaExpressionEngine {
     }
 
     private record EvalContext(ImportContext imports, ScriptEntry scriptEntry, Map<String, Object> locals) {
-            EvalContext(ImportContext imports, ScriptEntry scriptEntry) {
-                this(imports, scriptEntry, Collections.emptyMap());
-            }
-
+        EvalContext(ImportContext imports, ScriptEntry scriptEntry) {
+            this(imports, scriptEntry, Collections.emptyMap());
+        }
     }
 
     private record Token(TokenType type, String lexeme, Object literal) {
@@ -277,7 +283,7 @@ public final class JavaExpressionEngine {
         LEFT_PAREN, RIGHT_PAREN, LEFT_BRACKET, RIGHT_BRACKET,
         COMMA, DOT, IDENTIFIER, NUMBER, STRING,
         NEW, TRUE, FALSE, NULL, EOF,
-        MINUS, ARROW
+        MINUS, ARROW, EQUALS
     }
 
     private static final class Lexer {
@@ -321,6 +327,7 @@ public final class JavaExpressionEngine {
                 case ']': addToken(TokenType.RIGHT_BRACKET); return;
                 case ',': addToken(TokenType.COMMA); return;
                 case '.': addToken(TokenType.DOT); return;
+                case '=': addToken(TokenType.EQUALS); return;
                 case '-':
                     if (peek() == '>') {
                         advance();
@@ -401,10 +408,20 @@ public final class JavaExpressionEngine {
         Node parse() { return expression(); }
 
         private Node expression() {
+            if (check(TokenType.IDENTIFIER) && peekNext().type == TokenType.EQUALS) {
+                String name = consume(TokenType.IDENTIFIER, "Expected identifier").lexeme;
+                consume(TokenType.EQUALS, "Expected '='");
+                Node value = expression();
+                return new AssignmentNode(name, value);
+            }
             if (isLambdaStart()) {
                 return parseLambda();
             }
             return postfix();
+        }
+        private Token peekNext() {
+            if (current + 1 >= tokens.size()) return tokens.get(tokens.size() - 1);
+            return tokens.get(current + 1);
         }
 
         private boolean isLambdaStart() {
@@ -560,6 +577,23 @@ public final class JavaExpressionEngine {
         @Override Object eval(EvalContext ctx) { return value; }
     }
 
+    private static final class AssignmentNode extends Node {
+        private final String name;
+        private final Node valueExpression;
+
+        AssignmentNode(String name, Node valueExpression) {
+            this.name = name;
+            this.valueExpression = valueExpression;
+        }
+
+        @Override
+        Object eval(EvalContext ctx) throws Throwable {
+            Object value = valueExpression.eval(ctx);
+            ctx.locals.put(name, value);
+            return value;
+        }
+    }
+
     private static final class BracketInitNode extends Node {
         private final Node target;
         private final String inside;
@@ -611,23 +645,17 @@ public final class JavaExpressionEngine {
                     if (f == null) throw new RuntimeException("Field '" + fieldName + "' not found in " + cls.getName());
 
                     Object val = ReflectionUtil.adaptArgument(f.getType(), VariableNode.parseLiteral(f.getType(), raw));
+                    f.setAccessible(true);
                     f.set(obj, val);
                 }
                 return obj;
             } else {
                 List<String> parts = splitTopLevel(inside);
-                for (Constructor<?> ctor : cls.getDeclaredConstructors()) {
-                    if (ctor.getParameterCount() != parts.size()) continue;
-                    Class<?>[] pt = ctor.getParameterTypes();
-                    Object[] attemptArgs = new Object[pt.length];
-                    try {
-                        for (int i = 0; i < pt.length; i++) {
-                            attemptArgs[i] = ReflectionUtil.adaptArgument(pt[i], VariableNode.parseLiteral(pt[i], parts.get(i).trim()));
-                        }
-                        return ReflectionUtil.construct(cls, attemptArgs);
-                    } catch (Throwable ignore) {}
+                Object[] attemptArgs = new Object[parts.size()];
+                for (int i = 0; i < parts.size(); i++) {
+                    attemptArgs[i] = VariableNode.parseLiteral(String.class, parts.get(i).trim());
                 }
-                throw new RuntimeException("No matching constructor found for " + cls.getName() + " with " + parts.size() + " args");
+                return ReflectionUtil.construct(cls, attemptArgs);
             }
         }
 
@@ -685,7 +713,7 @@ public final class JavaExpressionEngine {
                 try { return ((BukkitTagContext) ctx.scriptEntry.context).player.getJavaObject(); }
                 catch (Exception ignored) {}
             }
-            if (name.equals("entry")) return ctx.scriptEntry;
+            if (name.equals("scriptEntry")) return ctx.scriptEntry;
 
             try {
                 if (ctx.scriptEntry != null && ctx.scriptEntry.getResidingQueue() != null
@@ -733,6 +761,7 @@ public final class JavaExpressionEngine {
             classLookupCache.put(name, cls);
             return cls;
         } catch (ClassNotFoundException e) {
+            classLookupCache.put(name, CLASS_NOT_FOUND_MARKER);
             throw e;
         }
     }
@@ -815,11 +844,11 @@ public final class JavaExpressionEngine {
 
     public static final class ReflectionUtil {
         private static final MethodHandles.Lookup ROOT_LOOKUP = MethodHandles.lookup();
+        private static final int MAX_REFLECTION_CACHE_SIZE = 10000;
 
         private static final Map<MemberKey, MethodHandle> METHOD_CACHE = new ConcurrentHashMap<>();
-        private static final Map<MemberKey, MethodHandle> CTOR_CACHE = new ConcurrentHashMap<>();
-        private static final Map<MemberKey, MethodHandle> FIELD_GETTER_CACHE = new ConcurrentHashMap<>();
-        private static final Map<MemberKey, Boolean> IS_VARARGS_CACHE = new ConcurrentHashMap<>();
+        private static final Map<MemberKey, MethodHandle> FIELD_CACHE = new ConcurrentHashMap<>();
+        private static final Set<MemberKey> MISSING_MEMBERS = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
         private static final class MemberKey {
             final Class<?> clazz;
@@ -831,18 +860,15 @@ public final class JavaExpressionEngine {
                 this.clazz = clazz;
                 this.name = name;
                 this.paramTypes = paramTypes;
-                int h = Objects.hash(clazz, name);
-                if (paramTypes != null) h = 31 * h + Arrays.hashCode(paramTypes);
-                this.hashCode = h;
+                this.hashCode = Objects.hash(clazz, name) * 31 + Arrays.hashCode(paramTypes);
             }
 
             @Override
             public boolean equals(Object o) {
                 if (this == o) return true;
                 if (!(o instanceof MemberKey that)) return false;
-                return clazz == that.clazz &&
-                        Objects.equals(name, that.name) &&
-                        Arrays.equals(paramTypes, that.paramTypes);
+                return hashCode == that.hashCode && clazz == that.clazz &&
+                        name.equals(that.name) && Arrays.equals(paramTypes, that.paramTypes);
             }
 
             @Override
@@ -851,39 +877,38 @@ public final class JavaExpressionEngine {
 
         public static void clearCache() {
             METHOD_CACHE.clear();
-            CTOR_CACHE.clear();
-            FIELD_GETTER_CACHE.clear();
-            IS_VARARGS_CACHE.clear();
+            FIELD_CACHE.clear();
+            MISSING_MEMBERS.clear();
+        }
+
+        private static void checkCacheSize() {
+            if (METHOD_CACHE.size() > MAX_REFLECTION_CACHE_SIZE) {
+                clearCache();
+            }
         }
 
         static Object construct(Class<?> type, Object[] args) throws Throwable {
             Class<?>[] argTypes = getTypes(args);
             MemberKey key = new MemberKey(type, "<init>", argTypes);
-
-            MethodHandle handle = CTOR_CACHE.get(key);
-            boolean isVarArgs;
+            MethodHandle handle = METHOD_CACHE.get(key);
 
             if (handle == null) {
+                checkCacheSize();
                 Constructor<?> ctor = findConstructorDeep(type, args);
-                if (ctor == null) throw new RuntimeException("No constructor for " + type.getName() + " args: " + Arrays.toString(argTypes));
+                if (ctor == null) throw new NoSuchMethodException("No constructor for " + type.getName());
 
                 ctor.setAccessible(true);
                 handle = ROOT_LOOKUP.unreflectConstructor(ctor);
-
-                isVarArgs = ctor.isVarArgs();
-                CTOR_CACHE.put(key, handle);
-                IS_VARARGS_CACHE.put(key, isVarArgs);
-            } else {
-                isVarArgs = IS_VARARGS_CACHE.get(key);
+                
+                METHOD_CACHE.put(key, handle);
             }
 
-            if (isVarArgs) {
-                Object[] packedArgs = packVarArgs(handle.type().parameterArray(), args);
-                return handle.invokeWithArguments(packedArgs);
-            } else {
-                Object[] adaptedArgs = adaptArgumentsArray(handle.type().parameterArray(), args);
-                return handle.invokeWithArguments(adaptedArgs);
-            }
+            boolean isVarargs = handle.type().parameterArray().length > 0 &&
+                    handle.type().parameterArray()[handle.type().parameterCount() - 1].isArray() &&
+                    (args.length >= handle.type().parameterCount() - 1);
+
+            Object[] adaptedArgs = adaptArguments(handle.type().parameterArray(), args, isVarargs);
+            return handle.invokeWithArguments(adaptedArgs);
         }
 
         static Object invokeMethod(Object targetOrClass, String name, Object[] args) throws Throwable {
@@ -892,73 +917,81 @@ public final class JavaExpressionEngine {
             Class<?>[] argTypes = getTypes(args);
 
             MemberKey key = new MemberKey(owner, name, argTypes);
+
             MethodHandle handle = METHOD_CACHE.get(key);
-            boolean isVarArgs;
+
+            if (handle == null && MISSING_MEMBERS.contains(key)) {
+                throw new NoSuchMethodException("Method " + name + " not found (cached miss)");
+            }
 
             if (handle == null) {
+                checkCacheSize();
                 Method method = findMethodDeep(owner, name, args);
-                if (method == null) throw new RuntimeException("Method " + name + " not found in " + owner.getName());
-
-                method.setAccessible(true);
-                MethodHandles.Lookup lookup;
-                try {
-                    lookup = MethodHandles.privateLookupIn(owner, ROOT_LOOKUP);
-                } catch (IllegalAccessException e) {
-                    lookup = MethodHandles.lookup();
+                if (method == null) {
+                    MISSING_MEMBERS.add(key);
+                    throw new NoSuchMethodException("Method " + name + " not found in " + owner.getName());
                 }
 
-                handle = lookup.unreflect(method);
-
-                isVarArgs = method.isVarArgs();
+                method.setAccessible(true);
+                handle = ROOT_LOOKUP.unreflect(method);
+                
                 METHOD_CACHE.put(key, handle);
-                IS_VARARGS_CACHE.put(key, isVarArgs);
-            } else {
-                isVarArgs = IS_VARARGS_CACHE.get(key);
             }
 
-            MethodHandle invocationHandle = isStatic ? handle : handle.bindTo(targetOrClass);
-
-            if (isVarArgs) {
-                Object[] packedArgs = packVarArgs(invocationHandle.type().parameterArray(), args);
-                return invocationHandle.invokeWithArguments(packedArgs);
+            MethodHandle invocationHandle;
+            if (isStatic) {
+                invocationHandle = handle;
             } else {
-                Object[] adaptedArgs = adaptArgumentsArray(invocationHandle.type().parameterArray(), args);
-                return invocationHandle.invokeWithArguments(adaptedArgs);
+                invocationHandle = handle.bindTo(targetOrClass);
             }
+
+            
+            
+            Class<?>[] paramTypes = invocationHandle.type().parameterArray();
+            boolean isVarargs = paramTypes.length > 0 && paramTypes[paramTypes.length - 1].isArray();
+
+            Object[] adaptedArgs = adaptArguments(paramTypes, args, isVarargs);
+            return invocationHandle.invokeWithArguments(adaptedArgs);
         }
 
-        private static Object[] packVarArgs(Class<?>[] paramTypes, Object[] args) {
-            int paramCount = paramTypes.length;
-            int varArgIndex = paramCount - 1;
-
-            Object[] packed = new Object[paramCount];
-
-            for (int i = 0; i < varArgIndex; i++) {
-                packed[i] = adaptArgument(paramTypes[i], args[i]);
+        private static Object[] adaptArguments(Class<?>[] paramTypes, Object[] args, boolean isVarargs) {
+            if (!isVarargs) {
+                
+                Object[] out = new Object[paramTypes.length];
+                for (int i = 0; i < paramTypes.length; i++) {
+                    out[i] = adaptArgument(paramTypes[i], args[i]);
+                }
+                return out;
             }
 
-            Class<?> arrayType = paramTypes[varArgIndex];
+            int fixedCount = paramTypes.length - 1;
+            Object[] out = new Object[paramTypes.length];
+
+            
+            for (int i = 0; i < fixedCount; i++) {
+                out[i] = adaptArgument(paramTypes[i], args[i]);
+            }
+
+            
+            Class<?> arrayType = paramTypes[fixedCount];
             Class<?> componentType = arrayType.getComponentType();
 
-            int varArgsCount = args.length - varArgIndex;
-            Object varArgsArray = java.lang.reflect.Array.newInstance(componentType, varArgsCount);
+            
+            if (args.length == paramTypes.length && arrayType.isInstance(args[fixedCount])) {
+                out[fixedCount] = args[fixedCount];
+            }
+            
+            else {
+                int varArgsCount = args.length - fixedCount;
+                Object varArgsArray = java.lang.reflect.Array.newInstance(componentType, Math.max(0, varArgsCount));
 
-            for (int i = 0; i < varArgsCount; i++) {
-                Object rawArg = args[varArgIndex + i];
-                Object adapted = adaptArgument(componentType, rawArg);
-                java.lang.reflect.Array.set(varArgsArray, i, adapted);
+                for (int i = 0; i < varArgsCount; i++) {
+                    Object val = adaptArgument(componentType, args[fixedCount + i]);
+                    java.lang.reflect.Array.set(varArgsArray, i, val);
+                }
+                out[fixedCount] = varArgsArray;
             }
 
-            packed[varArgIndex] = varArgsArray;
-            return packed;
-        }
-
-        private static Object[] adaptArgumentsArray(Class<?>[] paramTypes, Object[] args) {
-            Object[] out = new Object[args.length];
-            for (int i = 0; i < args.length; i++) {
-                Class<?> type = (i < paramTypes.length) ? paramTypes[i] : Object.class;
-                out[i] = adaptArgument(type, args[i]);
-            }
             return out;
         }
 
@@ -967,29 +1000,19 @@ public final class JavaExpressionEngine {
             Class<?> owner = isStatic ? (Class<?>) targetOrClass : targetOrClass.getClass();
 
             MemberKey key = new MemberKey(owner, name, null);
-            MethodHandle handle = FIELD_GETTER_CACHE.get(key);
+            MethodHandle handle = FIELD_CACHE.get(key);
 
             if (handle == null) {
+                checkCacheSize();
                 Field field = findFieldDeep(owner, name);
-                if (field == null) throw new RuntimeException("Field " + name + " not found in " + owner.getName());
+                if (field == null) throw new NoSuchFieldException("Field " + name + " not found");
 
                 field.setAccessible(true);
-                MethodHandles.Lookup lookup;
-                try {
-                    lookup = MethodHandles.privateLookupIn(field.getDeclaringClass(), ROOT_LOOKUP);
-                } catch (IllegalAccessException e) {
-                    lookup = MethodHandles.lookup();
-                }
-
-                handle = lookup.unreflectGetter(field);
-                FIELD_GETTER_CACHE.put(key, handle);
+                handle = ROOT_LOOKUP.unreflectGetter(field);
+                FIELD_CACHE.put(key, handle);
             }
 
-            if (isStatic) {
-                return handle.invoke();
-            } else {
-                return handle.invoke(targetOrClass);
-            }
+            return isStatic ? handle.invoke() : handle.invoke(targetOrClass);
         }
 
         private static Class<?>[] getTypes(Object[] args) {
@@ -1008,45 +1031,34 @@ public final class JavaExpressionEngine {
         }
 
         static Method findMethodDeep(Class<?> type, String name, Object[] args) {
+            
             for (Method m : type.getMethods()) {
                 if (m.getName().equals(name) && !m.isVarArgs() && isApplicable(m.getParameterTypes(), args, true)) return m;
             }
+            
             for (Method m : type.getMethods()) {
                 if (m.getName().equals(name) && m.isVarArgs() && isVarArgApplicable(m.getParameterTypes(), args, true)) return m;
             }
-            Method fuzzyMatch = null;
+            
             for (Method m : type.getMethods()) {
-                if (m.getName().equals(name) && !m.isVarArgs() && isApplicable(m.getParameterTypes(), args, false)) {
-                    fuzzyMatch = m;
-                    break;
-                }
+                if (m.getName().equals(name) && !m.isVarArgs() && isApplicable(m.getParameterTypes(), args, false)) return m;
             }
-            if (fuzzyMatch != null) return fuzzyMatch;
+            
             for (Method m : type.getMethods()) {
-                if (m.getName().equals(name) && m.isVarArgs() && isVarArgApplicable(m.getParameterTypes(), args, false)) {
-                    return m;
-                }
+                if (m.getName().equals(name) && m.isVarArgs() && isVarArgApplicable(m.getParameterTypes(), args, false)) return m;
             }
+            
             for (Class<?> c = type; c != null; c = c.getSuperclass()) {
                 for (Method m : c.getDeclaredMethods()) {
                     if (m.getName().equals(name)) {
                         boolean v = m.isVarArgs();
-                        if (v ? isVarArgApplicable(m.getParameterTypes(), args, true) : isApplicable(m.getParameterTypes(), args, true)) return m;
-                    }
-                }
-                if (fuzzyMatch == null) {
-                    for (Method m : c.getDeclaredMethods()) {
-                        if (m.getName().equals(name)) {
-                            boolean v = m.isVarArgs();
-                            if (v ? isVarArgApplicable(m.getParameterTypes(), args, false) : isApplicable(m.getParameterTypes(), args, false)) {
-                                fuzzyMatch = m;
-                                break;
-                            }
+                        if (v ? isVarArgApplicable(m.getParameterTypes(), args, false) : isApplicable(m.getParameterTypes(), args, false)) {
+                            return m;
                         }
                     }
                 }
             }
-            return fuzzyMatch;
+            return null;
         }
 
         static Constructor<?> findConstructorDeep(Class<?> type, Object[] args) {
@@ -1089,6 +1101,10 @@ public final class JavaExpressionEngine {
             if (arg == null) return !p.isPrimitive();
             if (arg instanceof Lambda) return p.isInterface();
 
+            if (arg instanceof ObjectTag) {
+                return isArgApplicable(p, ((ObjectTag) arg).getJavaObject(), strict);
+            }
+
             if (p.isInstance(arg)) return true;
 
             if (p.isPrimitive()) {
@@ -1102,14 +1118,21 @@ public final class JavaExpressionEngine {
                 if (p == boolean.class || p == Boolean.class) return true;
                 if (p == char.class || p == Character.class) return true;
                 if (p.isEnum()) return true;
-                Class<?> w = p.isPrimitive() ? primitiveToWrapper(p) : p;
-                return Number.class.isAssignableFrom(w);
+                if (isNumberType(p)) return isParsableNumber((String)arg);
             }
             if (arg instanceof Number && !strict) {
-                Class<?> target = p.isPrimitive() ? primitiveToWrapper(p) : p;
-                return Number.class.isAssignableFrom(target);
+                return isNumberType(p);
             }
             return false;
+        }
+
+        private static boolean isNumberType(Class<?> p) {
+            Class<?> w = p.isPrimitive() ? primitiveToWrapper(p) : p;
+            return Number.class.isAssignableFrom(w);
+        }
+
+        private static boolean isParsableNumber(String s) {
+            try { Double.parseDouble(s); return true; } catch(Exception e) { return false; }
         }
 
         public static Object adaptArgument(Class<?> paramType, Object arg) {
@@ -1117,6 +1140,13 @@ public final class JavaExpressionEngine {
                 return createLambdaProxy(paramType, (Lambda) arg);
             }
             if (arg == null) return null;
+
+            if (arg instanceof ObjectTag) {
+                Object javaObj = ((ObjectTag) arg).getJavaObject();
+                if (paramType.isInstance(javaObj)) return javaObj;
+                return adaptArgument(paramType, javaObj);
+            }
+
             if (arg instanceof String s) {
                 String text = s.trim();
                 if (paramType == boolean.class || paramType == Boolean.class) return text.equalsIgnoreCase("true") || text.equals("1");
@@ -1125,11 +1155,6 @@ public final class JavaExpressionEngine {
                     try { return Enum.valueOf((Class<Enum>) paramType, text); } catch (Exception ignored) {}
                 }
                 if (Number.class.isAssignableFrom(primitiveToWrapper(paramType))) return convertToNumber(primitiveToWrapper(paramType), text);
-            }
-            if (arg instanceof ObjectTag) {
-                Object javaObj = ((ObjectTag) arg).getJavaObject();
-                if (paramType.isInstance(javaObj)) return javaObj;
-                return adaptArgument(paramType, javaObj);
             }
 
             if (paramType.isPrimitive()) {
