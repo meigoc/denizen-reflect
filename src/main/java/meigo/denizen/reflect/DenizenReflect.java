@@ -16,6 +16,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 
 public class DenizenReflect extends JavaPlugin {
 
@@ -27,6 +29,13 @@ public class DenizenReflect extends JavaPlugin {
 
     @Override
     public void onLoad() {
+        try {
+            Path libsFolder = getDataFolder().toPath().resolve("libs");
+            LibraryLoader.loadLibraries(libsFolder);
+        } catch (IOException e) {
+            Debug.echoError("Failed to load external libraries for DenizenReflect:");
+            Debug.echoError(e);
+        }
         new Thread(() -> {
 
             while (PreScriptReloadScriptEvent.instance == null
@@ -50,13 +59,19 @@ public class DenizenReflect extends JavaPlugin {
 
         Debug.log("denizen-reflect", "Loading..");
 
-        try {
-            Path libsFolder = getDataFolder().toPath().resolve("libs");
-            LibraryLoader.loadLibraries(libsFolder);
-        } catch (IOException e) {
-            Debug.echoError("Failed to load external libraries for DenizenReflect:");
-            Debug.echoError(e);
-        }
+        Metrics metrics = new Metrics(this, 27365);
+        metrics.addCustomChart(
+                new Metrics.SimplePie("Denizen", () -> Bukkit.getPluginManager().getPlugin("Denizen").getDescription().getVersion())
+        );
+        metrics.addCustomChart(
+                new Metrics.AdvancedPie("libraries", () -> {
+                    Map<String, Integer> data = new HashMap<>();
+                    for (String libraryName : LibraryLoader.libraries) {
+                        data.put(libraryName, 1);
+                    }
+                    return data;
+                })
+        );
 
         try {
             if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
