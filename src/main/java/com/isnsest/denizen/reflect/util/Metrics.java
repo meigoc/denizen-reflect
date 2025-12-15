@@ -12,7 +12,7 @@
  *
  * Violations will result in a ban of your plugin and account from bStats.
  */
-package meigo.denizen.reflect.util;
+package com.isnsest.denizen.reflect.util;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;

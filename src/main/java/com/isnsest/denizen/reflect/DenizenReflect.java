@@ -1,4 +1,4 @@
-package meigo.denizen.reflect;
+package com.isnsest.denizen.reflect;
 
 import com.denizenscript.denizencore.DenizenCore;
 import com.denizenscript.denizencore.events.ScriptEvent;
@@ -6,10 +6,15 @@ import com.denizenscript.denizencore.events.core.PreScriptReloadScriptEvent;
 import com.denizenscript.denizencore.events.core.ScriptGeneratesErrorScriptEvent;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
+import com.isnsest.denizen.reflect.commands.*;
+import isnsest.denizen.reflect.commands.*;
+import com.isnsest.denizen.reflect.util.ImportManager;
+import com.isnsest.denizen.reflect.util.LibraryLoader;
+import com.isnsest.denizen.reflect.util.Metrics;
 import meigo.denizen.reflect.commands.*;
-import meigo.denizen.reflect.events.CustomCommandEvent;
-import meigo.denizen.reflect.events.CustomTagEvent;
-import meigo.denizen.reflect.events.PlaceholderEvent;
+import com.isnsest.denizen.reflect.events.CustomCommandEvent;
+import com.isnsest.denizen.reflect.events.CustomTagEvent;
+import com.isnsest.denizen.reflect.events.PlaceholderEvent;
 import meigo.denizen.reflect.util.*;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;

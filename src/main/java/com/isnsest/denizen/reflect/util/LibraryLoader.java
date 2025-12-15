@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.util;
+package com.isnsest.denizen.reflect.util;
 
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import org.jetbrains.annotations.NotNull;

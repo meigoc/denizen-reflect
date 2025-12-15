@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.commands;
+package com.isnsest.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.events.ScriptEvent;
 import com.denizenscript.denizencore.scripts.ScriptEntry;

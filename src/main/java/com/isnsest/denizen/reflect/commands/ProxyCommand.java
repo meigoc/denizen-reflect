@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.commands;
+package com.isnsest.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.*;
@@ -14,8 +14,8 @@ import com.denizenscript.denizencore.scripts.containers.ScriptContainer;
 import com.denizenscript.denizencore.scripts.queues.core.InstantQueue;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.denizenscript.denizencore.utilities.text.StringHolder;
-import meigo.denizen.reflect.util.JavaExpressionEngine;
-import meigo.denizen.reflect.util.LibraryLoader;
+import com.isnsest.denizen.reflect.util.JavaExpressionEngine;
+import com.isnsest.denizen.reflect.util.LibraryLoader;
 
 import java.lang.reflect.*;
 import java.util.*;

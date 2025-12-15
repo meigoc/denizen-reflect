@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.commands;
+package com.isnsest.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
@@ -14,7 +14,7 @@ import com.denizenscript.denizencore.tags.TagContext;
 import com.denizenscript.denizencore.utilities.ScriptUtilities;
 import com.denizenscript.denizencore.utilities.text.StringHolder;
 
-import static meigo.denizen.reflect.util.JavaExpressionEngine.wrapObject;
+import static com.isnsest.denizen.reflect.util.JavaExpressionEngine.wrapObject;
 
 import java.util.List;
 import java.util.Map;

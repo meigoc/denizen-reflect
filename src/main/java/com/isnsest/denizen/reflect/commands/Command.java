@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.commands;
+package com.isnsest.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.DenizenCore;
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsException;
@@ -13,7 +13,7 @@ import com.denizenscript.denizencore.scripts.commands.generator.ArgName;
 import com.denizenscript.denizencore.scripts.commands.generator.ArgPrefixed;
 import com.denizenscript.denizencore.tags.TagManager;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
-import meigo.denizen.reflect.events.CustomCommandEvent;
+import com.isnsest.denizen.reflect.events.CustomCommandEvent;
 
 import java.util.*;
 

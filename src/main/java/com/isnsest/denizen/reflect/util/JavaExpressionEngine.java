@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.util;
+package com.isnsest.denizen.reflect.util;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -1188,7 +1188,7 @@ public final class JavaExpressionEngine {
                     new Class<?>[]{interfaceType},
                     (proxy, method, args) -> {
                         if (method.getDeclaringClass() == Object.class) {
-                            if (method.getName().equals("toString")) return "MeigoLambdaProxy";
+                            if (method.getName().equals("toString")) return "LambdaProxy";
                             if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
                             if (method.getName().equals("equals")) return proxy == args[0];
                         }

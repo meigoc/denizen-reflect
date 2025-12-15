@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.commands;
+package com.isnsest.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.objects.ObjectTag;
@@ -9,7 +9,7 @@ import com.denizenscript.denizencore.scripts.commands.generator.*;
 import com.denizenscript.denizencore.tags.ObjectTagProcessor;
 import com.denizenscript.denizencore.tags.TagManager;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
-import meigo.denizen.reflect.events.CustomTagEvent;
+import com.isnsest.denizen.reflect.events.CustomTagEvent;
 
 public class TagCommand extends AbstractCommand {
 

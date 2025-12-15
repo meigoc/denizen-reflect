@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.commands;
+package com.isnsest.denizen.reflect.commands;
 
 import com.denizenscript.denizencore.exceptions.InvalidArgumentsRuntimeException;
 import com.denizenscript.denizencore.objects.ObjectTag;
@@ -7,8 +7,8 @@ import com.denizenscript.denizencore.scripts.commands.AbstractCommand;
 import com.denizenscript.denizencore.scripts.commands.generator.*;
 import me.clip.placeholderapi.events.ExpansionsLoadedEvent;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
-import meigo.denizen.reflect.DenizenReflect;
-import meigo.denizen.reflect.events.PlaceholderEvent;
+import com.isnsest.denizen.reflect.DenizenReflect;
+import com.isnsest.denizen.reflect.events.PlaceholderEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.event.EventHandler;

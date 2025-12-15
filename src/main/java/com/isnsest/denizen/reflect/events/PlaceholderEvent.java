@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.events;
+package com.isnsest.denizen.reflect.events;
 
 import com.denizenscript.denizen.objects.PlayerTag;
 import com.denizenscript.denizen.utilities.implementation.BukkitScriptEntryData;

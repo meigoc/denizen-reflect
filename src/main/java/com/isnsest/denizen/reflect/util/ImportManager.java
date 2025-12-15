@@ -1,4 +1,4 @@
-package meigo.denizen.reflect.util;
+package com.isnsest.denizen.reflect.util;
 
 import com.denizenscript.denizencore.events.ScriptEvent;
 import com.denizenscript.denizencore.events.core.PreScriptReloadScriptEvent;
