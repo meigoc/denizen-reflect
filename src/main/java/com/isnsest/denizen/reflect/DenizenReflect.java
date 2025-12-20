@@ -61,7 +61,7 @@ public class DenizenReflect extends JavaPlugin {
 
         Debug.log("denizen-reflect", "Loading..");
 
-        Metrics metrics = new Metrics(this, 27365);
+        Metrics metrics = new Metrics(this, 28366);
         metrics.addCustomChart(
                 new Metrics.SimplePie("Denizen", () -> Bukkit.getPluginManager().getPlugin("Denizen").getDescription().getVersion())
         );
