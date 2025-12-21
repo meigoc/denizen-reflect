@@ -7,7 +7,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
-import com.denizenscript.denizen.tags.BukkitTagContext;
+import com.denizenscript.denizen.utilities.Utilities;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
 import com.denizenscript.denizencore.objects.ObjectTag;
 import com.denizenscript.denizencore.objects.core.JavaReflectedObjectTag;
@@ -83,7 +83,7 @@ public final class JavaExpressionEngine {
             }
             Debug.echoError("Error evaluating Java expression: " + unescape(expression));
             Debug.echoError(t.getClass().getSimpleName() + ": " + t.getMessage());
-            t.printStackTrace();
+            Debug.echoError(t);
             return null;
         }
     }
@@ -710,7 +710,7 @@ public final class JavaExpressionEngine {
             }
 
             if (name.equals("player")) {
-                try { return ((BukkitTagContext) ctx.scriptEntry.context).player.getJavaObject(); }
+                try { return Utilities.getEntryPlayer(ctx.scriptEntry).getJavaObject(); }
                 catch (Exception ignored) {}
             }
             if (name.equals("scriptEntry")) return ctx.scriptEntry;
