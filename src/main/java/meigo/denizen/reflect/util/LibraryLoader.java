@@ -49,7 +49,7 @@ public class LibraryLoader {
             Files.walkFileTree(dataFolder, visitor);
             classLoader = new URLClassLoader(visitor.getUrls(), LibraryLoader.class.getClassLoader());
         } else {
-            Files.createDirectory(dataFolder);
+            Files.createDirectories(dataFolder);
         }
     }
 
