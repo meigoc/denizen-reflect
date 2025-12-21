@@ -1,8 +1,8 @@
 name: denizen-reflect
-author: isnsest
+author: Meigo™ Corporation
 version: ${version}
 main: meigo.denizen.reflect.DenizenReflect
-description: Allows Denizen scripts to directly interact with and manipulate Java objects.
+description: Adds direct Java support to Denizen scripts.
 depend: [Denizen]
 softdepend: [PlaceholderAPI]
 api-version: '1.21'

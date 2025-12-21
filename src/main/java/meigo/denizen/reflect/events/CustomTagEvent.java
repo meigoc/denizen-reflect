@@ -1,3 +1,8 @@
+/*
+ * Copyright 2025 Meigo™ Corporation
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package meigo.denizen.reflect.events;
 
 import com.denizenscript.denizencore.events.ScriptEvent;
