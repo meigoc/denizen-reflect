@@ -5,13 +5,13 @@
 # Denizen-Reflect
 
 [![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/modrinth_vector.svg)](https://modrinth.com/plugin/denizen-reflect)
-[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/github_vector.svg)](https://github.com/meigoc/denizen-reflect)
-[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/documentation/ghpages_vector.svg)](https://docs.meigo.pw/docs/denizenreflect)
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/github_vector.svg)](https://github.com/isnsest/denizen-reflect)
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/documentation/ghpages_vector.svg)](https://docs.meigoc.xyz/)
 
 <br>
 
-[![Snippets](https://img.shields.io/badge/snippets_code-reflect-orange?style=for-the-badge&logo=codeigniter&logoColor=white)](https://snippets.meigo.pw/)
-[![Discord](https://img.shields.io/discord/1407721411237384222?style=for-the-badge&logo=discord&label=Discord&color=5865F2)](https://discord.gg/TKSU8HBTNX)
+[![Snippets](https://img.shields.io/badge/snippets_code-reflect-orange?style=for-the-badge&logo=codeigniter&logoColor=white)](https://main.meigoc.xyz/snippets)
+[![Discord](https://img.shields.io/discord/1407721411237384222?style=for-the-badge&logo=discord&label=Discord&color=5865F2)](https://discord.gg/SVwEmsvpjN)
 
 </div>
 
