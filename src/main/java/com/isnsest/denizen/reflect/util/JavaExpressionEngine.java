@@ -58,7 +58,10 @@ public final class JavaExpressionEngine {
     }
 
     public static Object execute(String expression, ScriptEntry scriptEntry) {
-        String path = scriptEntry.getScript().getContainer().getRelativeFileName().replace("\\", "/");
+        String path = "";
+        if (scriptEntry.getScript() != null) {
+            path = scriptEntry.getScript().getContainer().getRelativeFileName().replace("\\", "/");
+        }
         int scriptIdx = path.indexOf("scripts/");
         if (scriptIdx != -1) {
             path = path.substring(scriptIdx + "scripts/".length());
@@ -82,7 +85,6 @@ public final class JavaExpressionEngine {
             }
             Debug.echoError("Error evaluating Java expression: " + unescape(expression));
             Debug.echoError(t.getClass().getSimpleName() + ": " + t.getMessage());
-            t.printStackTrace();
             return null;
         }
     }
@@ -91,7 +93,7 @@ public final class JavaExpressionEngine {
         if (obj == null) return false;
         if (obj instanceof ObjectTag) { return true; }
         if (obj instanceof List || obj instanceof Map) { return true; }
-        if (obj.getClass() == java.util.Collections.EMPTY_SET.getClass()) return true;
+        if (obj.getClass() == Collections.EMPTY_SET.getClass()) return true;
         if (obj.getClass().getName().startsWith("java.util.Collections$Unmodifiable")) { return true; }
         return obj instanceof String || obj instanceof Number || obj instanceof Boolean;
     }
@@ -416,8 +418,41 @@ public final class JavaExpressionEngine {
             if (isLambdaStart()) {
                 return parseLambda();
             }
+            return parseCast();
+        }
+
+        private Node parseCast() {
+            if (isLookaheadCast()) {
+                consume(TokenType.LEFT_PAREN, null);
+                String typeName = consume(TokenType.IDENTIFIER, "Expected type name").lexeme;
+                consume(TokenType.RIGHT_PAREN, null);
+
+                Node target = parseCast();
+                return new CastNode(typeName, target);
+            }
             return postfix();
         }
+
+        private boolean isLookaheadCast() {
+            if (current + 3 >= tokens.size()) return false;
+
+            if (tokens.get(current).type != TokenType.LEFT_PAREN) return false;
+            if (tokens.get(current + 1).type != TokenType.IDENTIFIER) return false;
+            if (tokens.get(current + 2).type != TokenType.RIGHT_PAREN) return false;
+
+            TokenType nextType = tokens.get(current + 3).type;
+            return nextType == TokenType.IDENTIFIER ||
+                    nextType == TokenType.NUMBER ||
+                    nextType == TokenType.STRING ||
+                    nextType == TokenType.TRUE ||
+                    nextType == TokenType.FALSE ||
+                    nextType == TokenType.NULL ||
+                    nextType == TokenType.NEW ||
+                    nextType == TokenType.LEFT_PAREN ||
+                    nextType == TokenType.LEFT_BRACKET ||
+                    nextType == TokenType.MINUS;
+        }
+
         private Token peekNext() {
             if (current + 1 >= tokens.size()) return tokens.get(tokens.size() - 1);
             return tokens.get(current + 1);
@@ -590,6 +625,46 @@ public final class JavaExpressionEngine {
             Object value = valueExpression.eval(ctx);
             ctx.locals.put(name, value);
             return value;
+        }
+    }
+
+    private static final class CastNode extends Node {
+        private final String typeName;
+        private final Node target;
+
+        CastNode(String typeName, Node target) {
+            this.typeName = typeName;
+            this.target = target;
+        }
+
+        @Override
+        Object eval(EvalContext ctx) throws Throwable {
+            Object value = target.eval(ctx);
+            if (value == null) return null;
+
+            Class<?> type;
+            switch (typeName) {
+                case "int": type = int.class; break;
+                case "double": type = double.class; break;
+                case "float": type = float.class; break;
+                case "long": type = long.class; break;
+                case "short": type = short.class; break;
+                case "byte": type = byte.class; break;
+                case "boolean": type = boolean.class; break;
+                case "char": type = char.class; break;
+                case "String": type = String.class; break;
+                default:
+                    type = ctx.imports.resolveType(typeName);
+                    if (type == null) {
+                        try {
+                            type = resolveClass(typeName);
+                        } catch (ClassNotFoundException e) {
+                            throw new RuntimeException("Unknown class for cast: " + typeName);
+                        }
+                    }
+            }
+
+            return ReflectionUtil.adaptArgument(type, value);
         }
     }
 
@@ -982,11 +1057,11 @@ public final class JavaExpressionEngine {
             
             else {
                 int varArgsCount = args.length - fixedCount;
-                Object varArgsArray = java.lang.reflect.Array.newInstance(componentType, Math.max(0, varArgsCount));
+                Object varArgsArray = Array.newInstance(componentType, Math.max(0, varArgsCount));
 
                 for (int i = 0; i < varArgsCount; i++) {
                     Object val = adaptArgument(componentType, args[fixedCount + i]);
-                    java.lang.reflect.Array.set(varArgsArray, i, val);
+                    Array.set(varArgsArray, i, val);
                 }
                 out[fixedCount] = varArgsArray;
             }
