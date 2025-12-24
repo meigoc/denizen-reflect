@@ -3,7 +3,6 @@ package com.isnsest.denizen.reflect.util;
 import com.denizenscript.denizencore.events.ScriptEvent;
 import com.denizenscript.denizencore.events.core.PreScriptReloadScriptEvent;
 import com.denizenscript.denizencore.events.core.ScriptGeneratesErrorScriptEvent;
-import com.denizenscript.denizencore.utilities.CoreUtilities;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 
 import java.io.IOException;
@@ -54,23 +53,19 @@ public class ImportManager {
         ScriptGeneratesErrorScriptEvent.instance = new ScriptGeneratesErrorScriptEvent() {
 
             @Override
-            public boolean couldMatch(ScriptPath path) {
-                return path.context != null;
-            }
-
-            @Override
             public ScriptEvent fire() {
-                if (this.message != null) {
-                    String lowerMsg = CoreUtilities.toLowerCase(this.message);
-                    if (lowerMsg.contains("container") && lowerMsg.contains("'import'")) {
+                if (this.message.contains("IMPORT")) {
                         this.cancelled = true;
                         this.cancellationChanged();
                         return null;
-                    }
                 }
                 ScriptEvent result = null;
                 if (err != null) {
                     try {
+                        err.message = this.message;
+                        err.queue = this.queue;
+                        err.script = this.script;
+                        err.line = this.line;
                         result = err.fire();
                     } catch (Throwable t) {
                         Debug.echoError("Denizen-Reflect: Error calling original ScriptGeneratesErrorScriptEvent: " + t.getMessage());
