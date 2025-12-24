@@ -1,26 +1,45 @@
 <div align="center">
 
-[![Read Documentation](https://wsrv.nl/?url=https%3A%2F%2Fcdn.jsdelivr.net%2Fnpm%2F%40intergrav%2Fdevins-badges%403%2Fassets%2Fcozy%2Fdocumentation%2Fghpages_vector.svg&n=-1)](https://docs.meigoc.xyz/)
+<img src="https://github.com/user-attachments/assets/a9a6116b-1833-40d3-89aa-22a8a1892892" width="120" alt="Logo">
 
-<a href="https://discord.gg/J5kZqYxUB8" rel="noopener nofollow ugc"><img src="https://wsrv.nl/?url=https%3A%2F%2Fdiscord.com%2Fapi%2Fguilds%2F1407721411237384222%2Fwidget.png%3Fstyle%3Dbanner2&amp;n=-1" alt=""></a>
+# Denizen-Reflect
+
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/modrinth_vector.svg)](https://modrinth.com/plugin/denizen-reflect)
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/available/github_vector.svg)](https://github.com/isnsest/denizen-reflect)
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/documentation/ghpages_vector.svg)](https://docs.meigo.pw/)
+
+<br>
+
+[![Snippets](https://img.shields.io/badge/snippets_code-reflect-orange?style=for-the-badge&logo=codeigniter&logoColor=white)](https://snippets.meigo.pw/)
+[![Discord](https://img.shields.io/discord/1407721411237384222?style=for-the-badge&logo=discord&label=Discord&color=5865F2)](https://discord.gg/SVwEmsvpjN)
+
 </div>
 
-[Snippets code on denizen-reflect](https://main.meigoc.xyz/snippets)
+<br>
 
-denizen-reflect is an add-on for experienced scripters. It is designed to combine the capabilities of Java with the Denizen development environment.
+**denizen-reflect** is an add-on for experienced scripters designed to combine the capabilities of Java directly within the Denizen development environment.
 
-Features:
-- Importing classes
-- Executing Java code, methods, fields, constructors.
-- Creating your own placeholders (PlaceholderAPI)
-- Creating your own denizen commands.
-- Creating your own denizen tags.
-- Renaming denizen events.
-- Creating proxies.
-- Lambda expression.
-- And other.
+### Supported Platforms
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/supported/paper_vector.svg)](https://papermc.io/downloads/paper)
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/supported/purpur_vector.svg)](https://purpurmc.org/)
+[![](https://cdn.jsdelivr.net/npm/@intergrav/devins-badges@3/assets/cozy/supported/spigot_vector.svg)](https://www.spigotmc.org/)
 
-```
+---
+
+### Features
+
+* 🔹 Importing classes
+* 🔹 Executing Java code (methods, fields, constructors)
+* 🔹 Creating your own placeholders (PlaceholderAPI)
+* 🔹 Creating custom Denizen commands & tags
+* 🔹 Renaming Denizen events
+* 🔹 Creating proxies
+* 🔹 Lambda expressions support
+* 🔹 And much more...
+
+### Example Usage
+
+```yaml
 import:
     java.lang.System as alias
     java.lang.String
@@ -30,5 +49,4 @@ task:
     script:
     - invoke player.kick()
     - invoke System.out.println("test")
-    - define
-```
+    - define my_variable "Something"
