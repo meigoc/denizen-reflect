@@ -16,7 +16,7 @@ public class TagCommand extends AbstractCommand {
     // @Plugin denizen-reflect
     public TagCommand() {
         setName("tag");
-        setSyntax("tag [create/delete] [<tag_name>] (static:true/false) (in:<object_name>)");
+        setSyntax("tag [create/delete] [<tag_name>] (static) (in:<object_name>)");
         setRequiredArguments(2, 4);
         isProcedural = false;
         autoCompile();
@@ -24,7 +24,7 @@ public class TagCommand extends AbstractCommand {
 
     // <--[command]
     // @Name Tag
-    // @Syntax tag [create/delete] [<tag_name>] (static:true/false) (in:<object_name>)
+    // @Syntax tag [create/delete] [<tag_name>] (static) (in:<object_name>)
     // @Required 2
     // @Maximum 4
     // @Short Tag manager.
@@ -47,7 +47,7 @@ public class TagCommand extends AbstractCommand {
     public static void autoExecute(ScriptEntry scriptEntry,
                             @ArgName("action") @ArgLinear String action,
                             @ArgName("tag_name") @ArgLinear String tag_name,
-                            @ArgName("static") @ArgPrefixed @ArgDefaultText("false") boolean _static,
+                            @ArgName("static") boolean _static,
                             @ArgName("in") @ArgPrefixed @ArgDefaultText("null") String in) {
         switch (action) {
             case "create":
