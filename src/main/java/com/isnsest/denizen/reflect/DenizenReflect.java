@@ -18,12 +18,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class DenizenReflect extends JavaPlugin {
 
     public static DenizenReflect instance;
+    Metrics metrics;
 
     public static DenizenReflect getInstance() {
         return instance;
@@ -49,10 +49,18 @@ public class DenizenReflect extends JavaPlugin {
             }
 
             ImportManager.registerEventHooks();
+            new Thread(() -> {
+                while (!Bukkit.getPluginManager().isPluginEnabled("dDiscordBot")) {
+                    try { Thread.sleep(1000); }
+                    catch (InterruptedException ignored) { return; }
+                }
+                metrics.addCustomChart(
+                        new Metrics.SimplePie("dDiscordBot", () -> Bukkit.getPluginManager().getPlugin("dDiscordBot").getDescription().getVersion())
+                );
+            }).start();
 
         }, "Denizen-Reflect-Init").start();
     }
-
 
     @Override
     public void onEnable() {
@@ -61,7 +69,7 @@ public class DenizenReflect extends JavaPlugin {
 
         Debug.log("denizen-reflect", "Loading..");
 
-        Metrics metrics = new Metrics(this, 28366);
+        metrics = new Metrics(this, 28366);
         metrics.addCustomChart(
                 new Metrics.SimplePie("Denizen", () -> Bukkit.getPluginManager().getPlugin("Denizen").getDescription().getVersion())
         );
