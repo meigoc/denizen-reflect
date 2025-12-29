@@ -55,7 +55,7 @@ public class ProxyCommand extends AbstractCommand {
         List<Class<?>> interfaceList = new ArrayList<>();
         for (String interfaceName : interfaces) {
             try {
-                String path = entry.getScript().getContainer().getRelativeFileName();
+                String path = entry.getScript().getContainer().getRelativeFileName().replace("\\", "/");
                 path = path.substring(path.indexOf("scripts/") + "scripts/".length());
                 Class<?> clazz = JavaExpressionEngine.importContexts.get(path).imports.get(interfaceName);
                 if (clazz.isInterface()) {
