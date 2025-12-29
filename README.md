@@ -11,7 +11,7 @@
 <br>
 
 [![Snippets](https://img.shields.io/badge/snippets_code-reflect-orange?style=for-the-badge&logo=codeigniter&logoColor=white)](https://snippets.meigo.pw/)
-[![Discord](https://img.shields.io/discord/1407721411237384222?style=for-the-badge&logo=discord&label=Discord&color=5865F2)](https://discord.gg/SVwEmsvpjN)
+[![Discord](https://img.shields.io/discord/1450970030744539219?style=for-the-badge&logo=discord&label=Discord&color=5865F2)](https://discord.gg/SVwEmsvpjN)
 
 </div>
 
