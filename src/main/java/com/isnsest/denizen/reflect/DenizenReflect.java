@@ -64,6 +64,9 @@ public class DenizenReflect extends JavaPlugin {
                 metrics.addCustomChart(
                         new Metrics.SimplePie("dDiscordBot", () -> Bukkit.getPluginManager().getPlugin("dDiscordBot").getDescription().getVersion())
                 );
+                metrics.addCustomChart(
+                        new Metrics.SimplePie("Denizen", () -> Bukkit.getPluginManager().getPlugin("Denizen").getDescription().getVersion())
+                );
             }).start();
 
         }, "Denizen-Reflect-Init").start();
@@ -90,9 +93,6 @@ public class DenizenReflect extends JavaPlugin {
         Debug.log("denizen-reflect", "Loading..");
 
         metrics = new Metrics(this, 28366);
-        metrics.addCustomChart(
-                new Metrics.SimplePie("Denizen", () -> Bukkit.getPluginManager().getPlugin("Denizen").getDescription().getVersion())
-        );
         metrics.addCustomChart(
                 new Metrics.AdvancedPie("libraries", () -> {
                     Map<String, Integer> data = new HashMap<>();
