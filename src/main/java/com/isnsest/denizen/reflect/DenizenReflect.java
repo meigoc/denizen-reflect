@@ -5,6 +5,12 @@ import com.denizenscript.denizencore.events.ScriptEvent;
 import com.denizenscript.denizencore.events.core.PreScriptReloadScriptEvent;
 import com.denizenscript.denizencore.events.core.ScriptGeneratesErrorScriptEvent;
 import com.denizenscript.denizencore.objects.ObjectFetcher;
+import com.denizenscript.denizencore.objects.ObjectTag;
+import com.denizenscript.denizencore.objects.core.ElementTag;
+import com.denizenscript.denizencore.objects.core.ListTag;
+import com.denizenscript.denizencore.objects.core.MapTag;
+import com.denizenscript.denizencore.tags.TagContext;
+import com.denizenscript.denizencore.tags.TagManager;
 import com.denizenscript.denizencore.utilities.debugging.Debug;
 import com.isnsest.denizen.reflect.commands.*;
 import com.isnsest.denizen.reflect.util.ImportManager;
@@ -13,6 +19,7 @@ import com.isnsest.denizen.reflect.util.Metrics;
 import com.isnsest.denizen.reflect.events.CustomCommandEvent;
 import com.isnsest.denizen.reflect.events.CustomTagEvent;
 import com.isnsest.denizen.reflect.events.PlaceholderEvent;
+import meigo.denizen.DenizenTagFinder;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -62,6 +69,19 @@ public class DenizenReflect extends JavaPlugin {
         }, "Denizen-Reflect-Init").start();
     }
 
+    public static ListTag getScriptTags(List<DenizenTagFinder.TagData> data, TagContext context, ObjectTag result) {
+        ListTag list = new ListTag();
+        for (DenizenTagFinder.TagData tag : data) {
+            MapTag map = new MapTag();
+            map.putObject("type", new ElementTag(tag.type));
+            map.putObject("value", new ElementTag(tag.value));
+            if (result != null) { map.putObject("result", result); }
+            if (tag.nested != null) { map.putObject("nested", getScriptTags(tag.nested, context, result)); }
+            list.addObject(map);
+        }
+        return list;
+    }
+
     @Override
     public void onEnable() {
         instance = this;
@@ -100,6 +120,20 @@ public class DenizenReflect extends JavaPlugin {
 
             ScriptEvent.registerScriptEvent(CustomTagEvent.class);
             ScriptEvent.registerScriptEvent(CustomCommandEvent.class);
+
+            TagManager.registerTagHandler(ObjectTag.class, "chain", attribute -> {
+                String param = attribute.getRawParam();
+                ObjectTag result = null;
+                if (attribute.startsWith("index", 2)) {
+                    if (attribute.hasContext(2)) {
+                        if (attribute.getContextObject(2).toString().equals("2")) {
+                            result = attribute.getParamObject();
+                        };
+                        attribute.fulfill(1);
+                    }
+                }
+                return getScriptTags(DenizenTagFinder.findScriptTags(param), attribute.context, result);
+            });
 
         }
         catch (Throwable e) {
