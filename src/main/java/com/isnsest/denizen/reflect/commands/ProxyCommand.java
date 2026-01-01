@@ -20,6 +20,8 @@ import com.isnsest.denizen.reflect.util.LibraryLoader;
 import java.lang.reflect.*;
 import java.util.*;
 
+import static com.isnsest.denizen.reflect.util.JavaExpressionEngine.resolveClass;
+
 public class ProxyCommand extends AbstractCommand {
 
     public ProxyCommand() {
@@ -57,8 +59,18 @@ public class ProxyCommand extends AbstractCommand {
             try {
                 String path = entry.getScript().getContainer().getRelativeFileName().replace("\\", "/");
                 path = path.substring(path.indexOf("scripts/") + "scripts/".length());
-                Class<?> clazz = JavaExpressionEngine.importContexts.get(path).imports.get(interfaceName);
-                if (clazz.isInterface()) {
+                JavaExpressionEngine.ImportContext imports = JavaExpressionEngine.importContexts.get(path);
+                JavaExpressionEngine.EvalContext ctx = new JavaExpressionEngine.EvalContext(imports, entry);
+                Class<?> imported = ctx.imports().resolveType(interfaceName);
+                Class<?> clazz = null;
+                if (imported != null) {
+                    clazz = imported;
+                } else {
+                    try {
+                        clazz = resolveClass(name);
+                    } catch (ClassNotFoundException ignored) {}
+                }
+                if (clazz != null && clazz.isInterface()) {
                     interfaceList.add(clazz);
                 } else {
                     Debug.echoError("Class is not an interface: " + interfaceName);

@@ -251,7 +251,7 @@ public final class JavaExpressionEngine {
             starImports.add(packageName);
         }
 
-        Class<?> resolveType(String name) {
+        public Class<?> resolveType(String name) {
             
             Class<?> cls = imports.get(name);
             if (cls != null) return cls;
@@ -271,8 +271,8 @@ public final class JavaExpressionEngine {
         }
     }
 
-    private record EvalContext(ImportContext imports, ScriptEntry scriptEntry, Map<String, Object> locals) {
-        EvalContext(ImportContext imports, ScriptEntry scriptEntry) {
+    public record EvalContext(ImportContext imports, ScriptEntry scriptEntry, Map<String, Object> locals) {
+        public EvalContext(ImportContext imports, ScriptEntry scriptEntry) {
             this(imports, scriptEntry, Collections.emptyMap());
         }
     }
@@ -824,7 +824,7 @@ public final class JavaExpressionEngine {
         }
     }
 
-    private static Class<?> resolveClass(String name) throws ClassNotFoundException {
+    public static Class<?> resolveClass(String name) throws ClassNotFoundException {
         Class<?> cached = classLookupCache.get(name);
         if (cached != null) {
             if (cached == CLASS_NOT_FOUND_MARKER) throw new ClassNotFoundException(name);
